@@ -65,6 +65,7 @@ pub struct App {
     totals_cache: Option<(Instant, (u64, u64), (u64, u64))>,
     last24_cache: Option<(Instant, Vec<Row>)>,
     pub confirm_clear: bool,
+    pub show_all_adapters: bool,
     pub down: Track,
     pub up: Track,
     /// Height of the content viewport, for sizing the live chart.
@@ -149,6 +150,7 @@ impl App {
             totals_cache: None,
             last24_cache: None,
             confirm_clear: false,
+            show_all_adapters: false,
             down: Track::default(),
             up: Track::default(),
             view_h: 700.0,

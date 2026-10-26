@@ -220,12 +220,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 stat(ui, &p, &s.value, s.unit, "Fastest download");
             }
             Scale::Month | Scale::Year => {
-                let count = rows
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, r)| row_date(scale, anchor, *i, r).is_some_and(|d| d <= today))
-                    .count()
-                    .max(1) as u64;
+                // Average over the days (or months) that were recorded, so a fresh
+                // install isn't diluted by days before SpeedMeter was running.
+                let count = rows.iter().filter(|r| r.total() > 0).count().max(1) as u64;
                 let (v, u) = format::bytes_parts((rx + tx) / count);
                 stat(ui, &p, &v, u, if scale == Scale::Month { "Daily average" } else { "Monthly average" });
             }
@@ -324,22 +321,24 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let only_rows: Vec<TableRow> = table_rows.iter().map(|(_, r)| TableRow { label: r.label.clone(), rx: r.rx, tx: r.tx }).collect();
     let mut clicked_row = None;
     let mut clicked_day = None;
-    let wide = ui.available_width() >= 880.0;
+    let wide = ui.available_width() >= 760.0;
     if scale == Scale::Month && wide {
         ui.horizontal_top(|ui| {
-            let cal_w = 330.0;
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let cal_w = 300.0;
             let table_w = ui.available_width() - cal_w - 32.0;
-            ui.allocate_ui(vec2(table_w, 0.0), |ui| {
+            let column = Layout::top_down(egui::Align::Min);
+            ui.allocate_ui_with_layout(vec2(table_w, 0.0), column, |ui| {
                 clicked_row = charts::table(ui, &p, first_col, &only_rows, true);
             });
             ui.add_space(32.0);
-            ui.allocate_ui(vec2(cal_w, 0.0), |ui| {
+            ui.allocate_ui_with_layout(vec2(cal_w, 0.0), column, |ui| {
                 clicked_day = charts::calendar(ui, &p, anchor.year(), anchor.month(), &rows, today);
             });
         });
     } else {
         if scale == Scale::Month {
-            ui.allocate_ui(vec2(340.0, 0.0), |ui| {
+            ui.allocate_ui_with_layout(vec2(340.0, 0.0), Layout::top_down(egui::Align::Min), |ui| {
                 clicked_day = charts::calendar(ui, &p, anchor.year(), anchor.month(), &rows, today);
             });
             ui.add_space(18.0);

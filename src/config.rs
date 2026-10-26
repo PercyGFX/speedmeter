@@ -113,6 +113,12 @@ impl Default for Config {
 pub const FONT_CHOICES: [&str; 4] = ["Bahnschrift", "Segoe UI Variable Text", "Segoe UI", "Cascadia Mono"];
 
 pub fn data_dir() -> PathBuf {
+    // Lets you point a test or demo copy at a different folder.
+    if let Some(dir) = std::env::var_os("SPEEDMETER_DATA_DIR") {
+        let dir = PathBuf::from(dir);
+        let _ = std::fs::create_dir_all(&dir);
+        return dir;
+    }
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir());

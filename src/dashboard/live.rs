@@ -12,7 +12,9 @@ pub const RANGES: [(u32, &str); 4] = [(60, "1 min"), (300, "5 min"), (900, "15 m
 /// Big readout. The number rolls and, with animations on, grows with the traffic.
 fn readout(ui: &mut Ui, p: &Palette, down: bool, row: &crate::anim::RowState, animate: bool, cfg: &crate::config::Config, caption: &str) {
     let base = 46.0;
-    let size = if animate { base * row.scale } else { base };
+    // Whole pixels only: egui caches glyphs per font size, so a continuously
+    // changing size would fill its glyph atlas (and memory) with near-duplicates.
+    let size = if animate { (base * row.scale).round() } else { base };
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 74.0), Sense::hover());
     let painter = ui.painter();
     let (color, hot) = if animate {
@@ -34,7 +36,7 @@ fn readout(ui: &mut Ui, p: &Palette, down: bool, row: &crate::anim::RowState, an
     let value_w = value.size().x;
     // Bahnschrift's descent is about a fifth of the size; align both runs on the baseline.
     painter.galley(pos2(x, baseline - value.size().y + size * 0.2), value, color);
-    let unit_size = (size * 0.42).max(16.0);
+    let unit_size = (size * 0.42).round().max(16.0);
     let unit = painter.layout_no_wrap(s.unit.to_string(), theme::display(unit_size), p.dim);
     painter.galley(pos2(x + value_w + 8.0, baseline - unit.size().y + unit_size * 0.2), unit, p.dim);
 

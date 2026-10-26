@@ -46,8 +46,18 @@ fn connection_list(app: &mut App, ui: &mut Ui) {
                 .to_string(),
         ),
     ];
-    for a in &app.adapters {
-        options.push((Connection::Adapter { id: a.id.clone(), name: a.name.clone() }, a.name.clone(), adapter_desc(a)));
+    // Connected physical adapters first, then connected virtual ones. Disconnected
+    // adapters (old VPNs, unused Hyper-V switches) wait behind "Show more".
+    let mut adapters: Vec<&Adapter> = app.adapters.iter().collect();
+    adapters.sort_by_key(|a| (!a.up, a.virtual_like, a.name.to_lowercase()));
+    let mut hidden = 0;
+    for a in adapters {
+        let conn = Connection::Adapter { id: a.id.clone(), name: a.name.clone() };
+        if !a.up && !app.show_all_adapters && !same_choice(&app.cfg.connection, &conn) {
+            hidden += 1;
+            continue;
+        }
+        options.push((conn, a.name.clone(), adapter_desc(a)));
     }
     for (i, (conn, title, desc)) in options.into_iter().enumerate() {
         let selected = same_choice(&app.cfg.connection, &conn);
@@ -68,6 +78,19 @@ fn connection_list(app: &mut App, ui: &mut Ui) {
             app.cfg.connection = conn;
         }
         ui.add_space(3.0);
+    }
+    let toggle_label = if app.show_all_adapters {
+        "Hide disconnected adapters".to_string()
+    } else if hidden > 0 {
+        format!("Show {hidden} disconnected adapter{}", if hidden == 1 { "" } else { "s" })
+    } else {
+        String::new()
+    };
+    if !toggle_label.is_empty() {
+        let link = ui.add(egui::Label::new(RichText::new(toggle_label).font(theme::body(13.0)).color(p.accent)).sense(Sense::click()));
+        if link.clicked() {
+            app.show_all_adapters = !app.show_all_adapters;
+        }
     }
 }
 
