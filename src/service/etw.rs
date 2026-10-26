@@ -38,11 +38,19 @@ pub struct Shared {
     layouts: Mutex<HashMap<(u16, u8), Option<Layout>>>,
     /// Kinds of events seen, for the diagnostic log: (provider, id, opcode name).
     pub seen: Mutex<Vec<(char, u16, String)>>,
+    /// Network events counted so far (wraps), published so a counter that runs
+    /// but counts nothing is easy to spot.
+    pub counted: std::sync::atomic::AtomicU32,
 }
 
 impl Shared {
     pub fn new() -> Self {
-        Self { counters: Mutex::new(Counters::new()), layouts: Mutex::new(HashMap::new()), seen: Mutex::new(Vec::new()) }
+        Self {
+            counters: Mutex::new(Counters::new()),
+            layouts: Mutex::new(HashMap::new()),
+            seen: Mutex::new(Vec::new()),
+            counted: std::sync::atomic::AtomicU32::new(0),
+        }
     }
 }
 
@@ -205,22 +213,31 @@ unsafe fn network_event(shared: &Shared, rec: &EVENT_RECORD) {
     if let Ok(mut c) = shared.counters.lock() {
         c.add(pid, local, remote, size, l.received);
     }
+    shared.counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Reads the event's schema: is it data sent or received, and where are the
-/// process id, size and addresses? None for every other kind of network event
-/// (connects, disconnects, retransmits, copies), which would double count.
+/// Whether a network event carries data, and which way, from its opcode number:
+/// KERNEL_NETWORK_OPCODE_SEND (10) and SENDUDP (42) are sent, RECV (11) and
+/// RECVUDP (43) received; IPv4 and IPv6 events share them. Everything else
+/// (connects, disconnects, retransmits, TCP copies) would count bytes twice.
+/// Numbers, not names: TDH's opcode names are display text ("Data sent.") and
+/// are translated on other Windows languages.
+fn direction(opcode: u8) -> Option<bool> {
+    match opcode {
+        10 | 42 => Some(false),
+        11 | 43 => Some(true),
+        _ => None,
+    }
+}
+
+/// Reads the event's schema: where are the process id, size and addresses?
+/// None for network events that don't carry data.
 unsafe fn network_layout(rec: &EVENT_RECORD) -> (Option<Layout>, String) {
     let Some(info) = event_info(rec) else { return (None, "no schema".into()) };
     let base = info.as_ptr() as *const u8;
     let ti = &*(base as *const TRACE_EVENT_INFO);
     let opcode = wide_at(base, ti.OpcodeNameOffset);
-    let op = opcode.to_ascii_lowercase();
-    let received = if op.starts_with("datasent") {
-        false
-    } else if op.starts_with("datareceived") {
-        true
-    } else {
+    let Some(received) = direction(rec.EventHeader.EventDescriptor.Opcode) else {
         return (None, opcode);
     };
     let pointer = if rec.EventHeader.Flags as u32 & EVENT_HEADER_FLAG_64_BIT_HEADER != 0 { 8 } else { 4 };
@@ -325,5 +342,23 @@ unsafe fn process_event(shared: &Shared, rec: &EVENT_RECORD) {
     let session = property_u32(rec, w!("SessionID")).unwrap_or(u32::MAX);
     if let Ok(mut c) = shared.counters.lock() {
         c.process_seen(pid, created, session, image);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::direction;
+
+    #[test]
+    fn data_events_by_opcode() {
+        // TCP and UDP, sent and received (IPv6 events share these opcodes).
+        assert_eq!(direction(10), Some(false));
+        assert_eq!(direction(42), Some(false));
+        assert_eq!(direction(11), Some(true));
+        assert_eq!(direction(43), Some(true));
+        // Connect, disconnect, retransmit, accept, reconnect, fail, TCP copy: not data.
+        for op in [12, 13, 14, 15, 16, 17, 18, 49] {
+            assert_eq!(direction(op), None, "opcode {op}");
+        }
     }
 }

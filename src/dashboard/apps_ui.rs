@@ -175,8 +175,9 @@ pub fn status_card(app: &mut App, ui: &mut Ui, live_state: Option<AppsState>) ->
     let p = app.pal;
     let busy = app.service.busy.load(Ordering::Acquire);
     let failed = app.service.failed.lock().ok().and_then(|f| f.clone());
-    // The meter is receiving per-app numbers: nothing to fix here.
-    if live_state == Some(AppsState::Counting) && !busy && failed.is_none() {
+    // The meter is receiving per-app numbers: nothing to fix, unless the counter
+    // is an older version (which may count wrong, like 0.2.0's counted nothing).
+    if live_state == Some(AppsState::Counting) && !busy && failed.is_none() && !app.service.needs_update() {
         return false;
     }
     let s = &app.service;

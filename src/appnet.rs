@@ -19,7 +19,8 @@ use windows::Win32::System::Memory::{
 pub const MAPPING: PCWSTR = w!("Global\\SpeedMeter.AppNet.v1");
 pub const MAGIC: u32 = 0x5350_4E31; // "SPN1"
 /// Bump whenever the service changes, so the app offers to update an older one.
-pub const SERVICE_VERSION: u32 = 1;
+/// 2: data events are recognized by opcode number (1 counted nothing).
+pub const SERVICE_VERSION: u32 = 2;
 pub const SERVICE_NAME: PCWSTR = w!("SpeedMeterApps");
 pub const SERVICE_EXE: &str = "speedmeter-service.exe";
 pub const CAPACITY: usize = 1024;
@@ -38,7 +39,8 @@ pub struct Header {
     pub events_lost: u64,
     /// 0 while counting; otherwise the Win32 error that stopped tracing.
     pub error: u32,
-    pub _pad: u32,
+    /// Network events counted since the service started (wraps around).
+    pub counted: u32,
     pub error_text: [u16; 128],
 }
 

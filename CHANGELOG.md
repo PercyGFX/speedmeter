@@ -2,6 +2,16 @@
 
 What's new in each version of SpeedMeter. The newest version is at the top.
 
+## [0.2.1] - 2026-10-27
+
+### Fixed
+
+- **Per-app counting showed no apps.** In 0.2.0 the counter didn't recognize Windows' network events, so it counted nothing. If you turned per-app counting on, SpeedMeter now asks you to update the counter (one administrator approval), and your apps appear within seconds.
+
+### Changed
+
+- The prompt to update the counter now also shows on the Live and History pages, not only in Settings.
+
 ## [0.2.0] - 2026-10-27
 
 ### New
@@ -35,5 +45,6 @@ First release.
 - Automatic network choice that follows Ethernet, Wi-Fi and VPNs.
 - Installer without administrator rights, start with Windows, and automatic updates from GitHub Releases.
 
+[0.2.1]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.2.1
 [0.2.0]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.2.0
 [0.1.0]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.1.0

@@ -55,13 +55,13 @@ pub fn run(stop: &AtomicBool, mut log: Option<std::fs::File>) {
             Ok(s) => s,
             Err((code, text)) => {
                 note(&format!("{text} ({code})"));
-                publisher.set_status(code, &text, 0);
+                publisher.set_status(code, &text, 0, 0);
                 wait(30);
                 continue;
             }
         };
         note("trace session started");
-        publisher.set_status(0, "", 0);
+        publisher.set_status(0, "", 0, shared.counted.load(Ordering::Relaxed));
         let consumer = std::thread::spawn(move || etw::consume(shared));
         std::thread::sleep(Duration::from_millis(500));
         session.request_rundown();
@@ -73,7 +73,7 @@ pub fn run(stop: &AtomicBool, mut log: Option<std::fs::File>) {
             if let Ok(mut c) = shared.counters.lock() {
                 c.publish(&mut publisher);
             }
-            publisher.set_status(0, "", lost);
+            publisher.set_status(0, "", lost, shared.counted.load(Ordering::Relaxed));
             if logging && last_note.elapsed() > Duration::from_secs(5) {
                 last_note = Instant::now();
                 if let Ok(seen) = shared.seen.lock() {
@@ -93,7 +93,7 @@ pub fn run(stop: &AtomicBool, mut log: Option<std::fs::File>) {
         match consumer.join() {
             Ok(Err(e)) => {
                 note(&e);
-                publisher.set_status(1, &e, 0);
+                publisher.set_status(1, &e, 0, shared.counted.load(Ordering::Relaxed));
             }
             Err(_) => note("trace reader panicked"),
             Ok(Ok(())) => {}

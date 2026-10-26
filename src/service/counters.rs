@@ -304,13 +304,14 @@ impl Publisher {
         unsafe { &mut *(self.view.Value as *mut Table) }
     }
 
-    pub fn set_status(&mut self, error: u32, text: &str, events_lost: u64) {
+    pub fn set_status(&mut self, error: u32, text: &str, events_lost: u64, counted: u32) {
         let h = &mut self.table().header;
         h.seq.fetch_add(1, Ordering::AcqRel);
         fence(Ordering::Release);
         h.error = error;
         set_wide(&mut h.error_text, text);
         h.events_lost = events_lost;
+        h.counted = counted;
         h.updated_ms = chrono::Utc::now().timestamp_millis();
         fence(Ordering::Release);
         h.seq.fetch_add(1, Ordering::AcqRel);
