@@ -284,50 +284,6 @@ pub fn clear(c: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// TrafficMonitor keeps daily totals in %APPDATA%\TrafficMonitor\history_traffic.dat.
-pub fn trafficmonitor_file() -> Option<PathBuf> {
-    let p = PathBuf::from(std::env::var_os("APPDATA")?).join("TrafficMonitor").join("history_traffic.dat");
-    p.exists().then_some(p)
-}
-
-/// Parses one line: "2026/10/24 1373593/55718363" (upload KB / download KB).
-/// Very old files store a single combined number; that is counted as download.
-fn parse_tm_line(line: &str) -> Option<(NaiveDate, u64, u64)> {
-    let mut parts = line.split_whitespace();
-    let date = NaiveDate::parse_from_str(parts.next()?, "%Y/%m/%d").ok()?;
-    let vals = parts.next()?;
-    let (up_kb, down_kb): (u64, u64) = match vals.split_once('/') {
-        Some((u, d)) => (u.parse().ok()?, d.parse().ok()?),
-        None => (0, vals.parse().ok()?),
-    };
-    Some((date, down_kb * 1024, up_kb * 1024))
-}
-
-/// Imports TrafficMonitor's daily totals. Days that already exist keep the larger value,
-/// so running the import twice (or alongside SpeedMeter's own data) never double counts.
-pub fn import_trafficmonitor(c: &mut Connection, path: &Path) -> Result<usize, String> {
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let text = if bytes.starts_with(&[0xFF, 0xFE]) {
-        let units: Vec<u16> = bytes[2..].chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
-        String::from_utf16_lossy(&units)
-    } else {
-        String::from_utf8_lossy(&bytes).into_owned()
-    };
-    let t = c.transaction().map_err(|e| e.to_string())?;
-    let mut n = 0;
-    for (date, rx, tx) in text.lines().filter_map(parse_tm_line) {
-        t.execute(
-            "INSERT INTO day(day,rx,tx) VALUES(?1,?2,?3)
-             ON CONFLICT(day) DO UPDATE SET rx=max(rx,excluded.rx), tx=max(tx,excluded.tx)",
-            params![day_key(date), rx as i64, tx as i64],
-        )
-        .map_err(|e| e.to_string())?;
-        n += 1;
-    }
-    t.commit().map_err(|e| e.to_string())?;
-    Ok(n)
-}
-
 pub fn today() -> NaiveDate {
     Local::now().date_naive()
 }
@@ -349,16 +305,6 @@ pub fn same_month(a: NaiveDate, b: NaiveDate) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_trafficmonitor_lines() {
-        let (d, rx, tx) = parse_tm_line("2026/10/24 1373593/55718363").unwrap();
-        assert_eq!(d, NaiveDate::from_ymd_opt(2026, 10, 24).unwrap());
-        assert_eq!(rx, 55718363 * 1024);
-        assert_eq!(tx, 1373593 * 1024);
-        assert!(parse_tm_line("lines: \"1203\"").is_none());
-        assert_eq!(parse_tm_line("2019/01/02 500").unwrap().1, 500 * 1024);
-    }
 
     #[test]
     fn round_trip_in_memory() {

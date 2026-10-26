@@ -81,7 +81,8 @@ pub struct Config {
     pub theme: ThemePref,
     /// How long minute-level data is kept. Daily totals are kept forever.
     pub keep_minutes_days: u32,
-    pub trafficmonitor_import_done: bool,
+    /// Download and install new releases in the background.
+    pub auto_update: bool,
 }
 
 impl Default for Config {
@@ -104,7 +105,7 @@ impl Default for Config {
             show_tray_icon: true,
             theme: ThemePref::System,
             keep_minutes_days: 30,
-            trafficmonitor_import_done: false,
+            auto_update: true,
         }
     }
 }
