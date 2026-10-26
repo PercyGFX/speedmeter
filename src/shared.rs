@@ -4,7 +4,6 @@
 
 use crate::sys::{copy_wide, from_wide};
 use std::sync::atomic::{fence, AtomicU32, Ordering};
-use windows::core::w;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows::Win32::System::Memory::{
     CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_ALL_ACCESS,
@@ -33,8 +32,39 @@ pub fn page_from_name(name: &str) -> u32 {
         _ => PAGE_LIVE,
     }
 }
-const MAGIC: u32 = 0x5350_4D31; // "SPM1"
-const NAME: windows::core::PCWSTR = w!("Local\\SpeedMeter.Live.v1");
+const MAGIC: u32 = 0x5350_4D32; // "SPM2"
+fn name() -> windows::core::HSTRING {
+    windows::core::HSTRING::from(format!("Local\\SpeedMeter.Live.v2{}", crate::config::instance_suffix()))
+}
+/// How many apps the live list carries.
+pub const LIVE_APPS: usize = 32;
+
+/// Per-app counting, as the meter sees it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AppsState {
+    /// The counting service isn't installed or running.
+    #[default]
+    Off,
+    Counting,
+    /// The service runs but couldn't start counting.
+    Error,
+}
+
+/// One app's speed in the last second.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AppSpeed {
+    pub key: String,
+    pub down: f32,
+    pub up: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct LiveApp {
+    key: [u16; 260],
+    down: f32,
+    up: f32,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug)]
@@ -62,6 +92,10 @@ struct Live {
     iface_name: [u16; 64],
     iface_desc: [u16; 128],
     samples: [Sample; RING],
+    apps_state: u32,
+    apps_count: u32,
+    /// Busiest apps in the last second, busiest first.
+    apps: [LiveApp; LIVE_APPS],
 }
 
 /// Plain copy of the shared state, owned by the reader.
@@ -75,6 +109,8 @@ pub struct Snapshot {
     pub iface_desc: String,
     /// Oldest first.
     pub samples: Vec<Sample>,
+    pub apps_state: AppsState,
+    pub apps: Vec<AppSpeed>,
 }
 
 impl Snapshot {
@@ -118,7 +154,7 @@ impl Writer {
     pub fn create() -> Option<Self> {
         let size = std::mem::size_of::<Live>() as u32;
         unsafe {
-            let handle = CreateFileMappingW(INVALID_HANDLE_VALUE, None, PAGE_READWRITE, 0, size, NAME).ok()?;
+            let handle = CreateFileMappingW(INVALID_HANDLE_VALUE, None, PAGE_READWRITE, 0, size, &name()).ok()?;
             let view = MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, 0);
             if view.Value.is_null() {
                 let _ = CloseHandle(handle);
@@ -136,7 +172,7 @@ impl Writer {
         unsafe { &mut *self.map.ptr() }
     }
 
-    pub fn publish(&mut self, sample: Sample, totals: [u64; 4], name: &str, desc: &str) {
+    pub fn publish(&mut self, sample: Sample, totals: [u64; 4], name: &str, desc: &str, apps_state: AppsState, apps: &[AppSpeed]) {
         let live = self.live();
         live.seq.fetch_add(1, Ordering::AcqRel);
         fence(Ordering::Release);
@@ -149,6 +185,18 @@ impl Writer {
         live.month_tx = totals[3];
         copy_wide(&mut live.iface_name, name);
         copy_wide(&mut live.iface_desc, desc);
+        live.apps_state = match apps_state {
+            AppsState::Off => 0,
+            AppsState::Counting => 1,
+            AppsState::Error => 2,
+        };
+        let n = apps.len().min(LIVE_APPS);
+        for (slot, a) in live.apps.iter_mut().zip(&apps[..n]) {
+            copy_wide(&mut slot.key, &a.key);
+            slot.down = a.down;
+            slot.up = a.up;
+        }
+        live.apps_count = n as u32;
         fence(Ordering::Release);
         live.seq.fetch_add(1, Ordering::AcqRel);
     }
@@ -165,7 +213,7 @@ pub struct Reader {
 impl Reader {
     pub fn open() -> Option<Self> {
         unsafe {
-            let handle = OpenFileMappingW((FILE_MAP_READ | FILE_MAP_WRITE).0, false, NAME).ok()?;
+            let handle = OpenFileMappingW((FILE_MAP_READ | FILE_MAP_WRITE).0, false, &name()).ok()?;
             let view = MapViewOfFile(handle, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
             if view.Value.is_null() {
                 let _ = CloseHandle(handle);
@@ -205,6 +253,20 @@ impl Reader {
                     iface_name: from_wide(&std::ptr::read_volatile(&(*live).iface_name)),
                     iface_desc: from_wide(&std::ptr::read_volatile(&(*live).iface_desc)),
                     samples,
+                    apps_state: match std::ptr::read_volatile(&(*live).apps_state) {
+                        1 => AppsState::Counting,
+                        2 => AppsState::Error,
+                        _ => AppsState::Off,
+                    },
+                    apps: {
+                        let n = (std::ptr::read_volatile(&(*live).apps_count) as usize).min(LIVE_APPS);
+                        (0..n)
+                            .map(|i| {
+                                let a = std::ptr::read_volatile(&(*live).apps[i]);
+                                AppSpeed { key: from_wide(&a.key), down: a.down, up: a.up }
+                            })
+                            .collect()
+                    },
                 };
                 fence(Ordering::Acquire);
                 if (*live).seq.load(Ordering::Acquire) == s1 {

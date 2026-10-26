@@ -13,10 +13,12 @@ mod widget;
 use crate::config::{self, Config, Connection, Placement};
 use crate::format::{self, UnitMode};
 use crate::history::{self, MinuteRecord, WriteMsg};
+use crate::limits;
 use crate::net::{self, Reading, Sampler};
-use crate::shared::{self, Sample, PAGE_HISTORY, PAGE_LIVE, PAGE_SETTINGS};
+use crate::apps;
+use crate::shared::{self, AppSpeed, AppsState, Sample, PAGE_HISTORY, PAGE_LIVE, PAGE_SETTINGS};
 use crate::sys::{self, wide};
-use chrono::Local;
+use chrono::{Local, TimeZone, Timelike};
 use crate::anim::Track;
 use render::{Renderer, Scene};
 
@@ -47,7 +49,11 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-pub const MAIN_CLASS: PCWSTR = w!("SpeedMeter.Monitor");
+/// The monitor's window class, which other processes use to find it.
+pub fn main_class() -> &'static windows::core::HSTRING {
+    static CLASS: std::sync::OnceLock<windows::core::HSTRING> = std::sync::OnceLock::new();
+    CLASS.get_or_init(|| format!("SpeedMeter.Monitor{}", config::instance_suffix()).into())
+}
 pub const WM_APP_TRAY: u32 = WM_APP + 1;
 /// Sent by the dashboard after it saves settings. wParam 1 = history changed too.
 pub const WM_APP_RELOAD: u32 = WM_APP + 2;
@@ -72,7 +78,7 @@ fn with<R>(f: impl FnOnce(&mut Monitor) -> R) -> Option<R> {
 }
 
 pub fn main_window() -> Option<HWND> {
-    unsafe { FindWindowW(MAIN_CLASS, None).ok().filter(|h| !h.is_invalid()) }
+    unsafe { FindWindowW(main_class(), None).ok().filter(|h| !h.is_invalid()) }
 }
 
 pub fn is_running() -> bool {
@@ -105,6 +111,13 @@ struct Totals {
     month: String,
     today: (u64, u64),
     this_month: (u64, u64),
+    /// For limits: what this week and this monthly period used before today.
+    week_before: (u64, u64),
+    period_before: (u64, u64),
+}
+
+fn add2(a: (u64, u64), b: (u64, u64)) -> (u64, u64) {
+    (a.0 + b.0, a.1 + b.1)
 }
 
 
@@ -131,6 +144,38 @@ fn demo_reading(tick: u64) -> Reading {
     Reading { down, up, rx: down as u64, tx: up as u64 }
 }
 
+/// The demo traffic shared among a few apps found on this PC, for the live list.
+fn demo_apps(r: &Reading, tick: u64) -> Vec<AppSpeed> {
+    static APPS: std::sync::OnceLock<Vec<(String, f64, f64)>> = std::sync::OnceLock::new();
+    let apps = APPS.get_or_init(|| {
+        let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        let roaming = std::env::var("APPDATA").unwrap_or_default();
+        let candidates = [
+            (r"C:\Program Files\Mozilla Firefox\firefox.exe".to_string(), 0.46, 0.30),
+            (r"C:\Program Files (x86)\Steam\steam.exe".to_string(), 0.30, 0.04),
+            (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe".to_string(), 0.08, 0.10),
+            (format!(r"{local}\Programs\Microsoft VS Code\Code.exe"), 0.04, 0.12),
+            (format!(r"{roaming}\Telegram Desktop\Telegram.exe"), 0.03, 0.30),
+        ];
+        let mut list: Vec<(String, f64, f64)> =
+            candidates.into_iter().filter(|(p, _, _)| std::path::Path::new(p).exists()).map(|(p, d, u)| (p.to_lowercase(), d, u)).collect();
+        list.push(("svc:wuauserv".into(), 0.06, 0.02));
+        list.push((apps::SYSTEM.into(), 0.01, 0.06));
+        list
+    });
+    let t = tick as f64;
+    let mut out: Vec<AppSpeed> = apps
+        .iter()
+        .enumerate()
+        .map(|(i, (key, d, u))| {
+            let wobble = 1.0 + 0.35 * (t * 0.7 + i as f64 * 1.9).sin();
+            AppSpeed { key: key.clone(), down: (r.down * d * wobble) as f32, up: (r.up * u * wobble) as f32 }
+        })
+        .collect();
+    out.sort_by(|a, b| (b.down + b.up).total_cmp(&(a.down + a.up)));
+    out
+}
+
 struct Monitor {
     hwnd: HWND,
     cfg: Config,
@@ -154,7 +199,15 @@ struct Monitor {
     demo: bool,
     last: Reading,
     bucket: MinuteRecord,
+    tracker: apps::Tracker,
+    /// Per-app bytes in the current minute, by app key.
+    app_bucket: std::collections::HashMap<String, apps::AppDelta>,
+    /// The counting service delivered numbers during the current minute.
+    apps_counted: bool,
     totals: Totals,
+    notified: limits::Notified,
+    /// How full the tightest data limit is (1.0 = reached), for the meter's bar.
+    limit_bar: Option<f32>,
     ticks: u64,
     label: (String, String),
     menu_adapters: Vec<(String, String)>,
@@ -249,7 +302,19 @@ impl Monitor {
             demo: std::env::var_os("SPEEDMETER_DEMO").is_some(),
             last: Reading::default(),
             bucket: new_bucket(now),
-            totals: Totals { day: String::new(), month: String::new(), today: (0, 0), this_month: (0, 0) },
+            tracker: apps::Tracker::new(),
+            app_bucket: std::collections::HashMap::new(),
+            apps_counted: false,
+            totals: Totals {
+                day: String::new(),
+                month: String::new(),
+                today: (0, 0),
+                this_month: (0, 0),
+                week_before: (0, 0),
+                period_before: (0, 0),
+            },
+            notified: limits::Notified::load(),
+            limit_bar: None,
             ticks: 0,
             label: (String::new(), String::new()),
             menu_adapters: Vec::new(),
@@ -265,26 +330,92 @@ impl Monitor {
     /// Today's and this month's totals = what's on disk + the minute still in memory.
     fn load_totals(&mut self) {
         let now = Local::now();
+        let date = now.date_naive();
         let day = now.format("%Y-%m-%d").to_string();
         let month = now.format("%Y-%m").to_string();
-        let (mut today, mut this_month) = ((0, 0), (0, 0));
+        let (mut today, mut this_month, mut week_before, mut period_before) = ((0, 0), (0, 0), (0, 0), (0, 0));
         if let Ok(c) = history::open(&config::db_path()) {
             today = history::day_totals(&c, &day);
             this_month = history::month_totals(&c, &month);
+            let week = history::day_key(limits::week_start(date));
+            let period = history::day_key(limits::month_start(date, self.cfg.limits.month_starts));
+            week_before = history::sum_days(&c, &week, &day);
+            period_before = history::sum_days(&c, &period, &day);
         }
         let pending = (self.bucket.rx, self.bucket.tx);
         self.totals = Totals {
             day,
             month,
-            today: (today.0 + pending.0, today.1 + pending.1),
-            this_month: (this_month.0 + pending.0, this_month.1 + pending.1),
+            today: add2(today, pending),
+            this_month: add2(this_month, pending),
+            week_before,
+            period_before,
         };
+    }
+
+    /// Limits that are on, with what's used of each right now.
+    fn limit_usage(&self) -> Vec<limits::Usage> {
+        let l = &self.cfg.limits;
+        if !l.any() {
+            return Vec::new();
+        }
+        let t = &self.totals;
+        limits::usages(l, Local::now().date_naive(), t.today, add2(t.week_before, t.today), add2(t.period_before, t.today))
+    }
+
+    /// Notifies about limits that crossed 80%, 100% or another 25% beyond.
+    fn check_limits(&mut self, usage: &[limits::Usage]) {
+        self.tray.tidy(self.cfg.show_tray_icon);
+        if !self.cfg.limits.notify || usage.is_empty() {
+            return;
+        }
+        for (u, level) in self.notified.due(usage) {
+            let (title, text) = limits::message(&u, level);
+            self.tray.notify(&title, &text, level >= 100);
+        }
+    }
+
+    /// Per-app bytes for this second, from the counting service. Returns the
+    /// busiest apps for the window's live list.
+    fn account_apps(&mut self) -> Vec<AppSpeed> {
+        let luids = self.sampler.active_luids().to_vec();
+        let Some(deltas) = self.tracker.tick(&luids) else { return Vec::new() };
+        self.apps_counted = true;
+        let mut speeds: Vec<AppSpeed> = deltas.iter().map(|d| AppSpeed { key: d.key.clone(), down: d.rx as f32, up: d.tx as f32 }).collect();
+        speeds.sort_by(|a, b| (b.down + b.up).total_cmp(&(a.down + a.up)));
+        speeds.truncate(shared::LIVE_APPS);
+        for d in deltas {
+            let e = self.app_bucket.entry(d.key.clone()).or_insert_with(|| apps::AppDelta { key: d.key, hint: d.hint, rx: 0, tx: 0 });
+            e.rx += d.rx;
+            e.tx += d.tx;
+        }
+        speeds
     }
 
     fn flush_bucket(&mut self) {
         if self.bucket.rx + self.bucket.tx > 0 {
             let _ = self.writer.send(WriteMsg::Minute(self.bucket.clone()));
         }
+        if std::mem::take(&mut self.apps_counted) {
+            let mut rows: Vec<apps::AppDelta> = self.app_bucket.drain().map(|(_, d)| d).collect();
+            // What the meter measured beyond what apps account for (headers, other
+            // users, timing), so the minute's apps add up to its total.
+            let (arx, atx) = rows.iter().fold((0, 0), |(r, t), d| (r + d.rx, t + d.tx));
+            let other = apps::AppDelta { key: apps::OTHER.into(), hint: None, rx: self.bucket.rx.saturating_sub(arx), tx: self.bucket.tx.saturating_sub(atx) };
+            if other.rx + other.tx > 0 {
+                rows.push(other);
+            }
+            if !rows.is_empty() {
+                let hour = Local
+                    .timestamp_opt(self.bucket.ts, 0)
+                    .single()
+                    .and_then(|t| t.with_minute(0))
+                    .map(|t| t.timestamp())
+                    .unwrap_or(self.bucket.ts / 3600 * 3600);
+                let _ = self.writer.send(WriteMsg::Apps(history::AppMinute { hour, day: self.bucket.day.clone(), rows }));
+            }
+        }
+        self.app_bucket.clear();
         self.bucket.rx = 0;
         self.bucket.tx = 0;
         self.bucket.peak_rx = 0.0;
@@ -311,6 +442,15 @@ impl Monitor {
                 self.totals.month = day[..7].to_string();
                 self.totals.this_month = (0, 0);
             }
+            // Yesterday joins the week and the monthly period, unless a new one began.
+            let parse = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok();
+            if let (Some(old), Some(new)) = (parse(&self.totals.day), parse(day)) {
+                let starts = self.cfg.limits.month_starts;
+                let t = &mut self.totals;
+                t.week_before = if limits::week_start(old) == limits::week_start(new) { add2(t.week_before, t.today) } else { (0, 0) };
+                t.period_before =
+                    if limits::month_start(old, starts) == limits::month_start(new, starts) { add2(t.period_before, t.today) } else { (0, 0) };
+            }
             self.totals.day = day.clone();
             self.totals.today = (0, 0);
         }
@@ -333,16 +473,25 @@ impl Monitor {
         if !self.demo {
             self.account(&r);
         }
+        let live_apps = if self.demo { demo_apps(&r, self.ticks) } else { self.account_apps() };
         let active = self.sampler.active();
         self.label = net::selection_label(&self.cfg.connection, &active);
 
         if let Some(live) = self.live.as_mut() {
             let t = &self.totals;
+            let apps_state = match &self.tracker.status {
+                _ if self.demo => AppsState::Counting,
+                apps::Status::Off => AppsState::Off,
+                apps::Status::Error(_) => AppsState::Error,
+                apps::Status::Counting => AppsState::Counting,
+            };
             live.publish(
                 Sample { t: chrono::Utc::now().timestamp_millis(), down: r.down as f32, up: r.up as f32 },
                 [t.today.0, t.today.1, t.this_month.0, t.this_month.1],
                 &self.label.0,
                 &self.label.1,
+                apps_state,
+                &live_apps,
             );
         }
 
@@ -353,6 +502,9 @@ impl Monitor {
         if self.ticks % (6 * 3600) == 0 {
             let _ = self.writer.send(WriteMsg::Prune { keep_days: self.cfg.keep_minutes_days });
         }
+        let usage = self.limit_usage();
+        self.limit_bar = limits::for_bar(&self.cfg.limits, &usage).map(|u| u.fraction() as f32);
+        self.check_limits(&usage);
         if self.animating() {
             self.down.target = r.down;
             self.up.target = r.up;
@@ -373,8 +525,12 @@ impl Monitor {
         let (name, desc) = &self.label;
         let t = &self.totals;
         let head = if desc.is_empty() || desc == name { name.clone() } else { format!("{name} ({desc})") };
+        let mut limits_text = String::new();
+        for u in self.limit_usage() {
+            limits_text.push_str(&format!("\n{} limit: {}, {}", u.period.name(), u.summary(), u.resets_text()));
+        }
         format!(
-            "{head}\nToday: {} down, {} up\nThis month: {} down, {} up\nDouble-click to open SpeedMeter",
+            "{head}\nToday: {} down, {} up\nThis month: {} down, {} up{limits_text}\nDouble-click to open SpeedMeter",
             format::bytes(t.today.0),
             format::bytes(t.today.1),
             format::bytes(t.this_month.0),
@@ -509,6 +665,7 @@ impl Monitor {
             floating: f.floating,
             hover: self.hover_t,
             scale: f.scale,
+            limit: self.limit_bar,
         };
         match renderer.draw(&scene, f.w, f.h) {
             Ok(dc) => {
@@ -563,6 +720,12 @@ impl Monitor {
         if old.placement != self.cfg.placement {
             self.widget = None;
         }
+        if old.limits.month_starts != self.cfg.limits.month_starts {
+            // The monthly period moved: count it again from the history.
+            self.wait_for_writer();
+            self.load_totals();
+        }
+        self.limit_bar = limits::for_bar(&self.cfg.limits, &self.limit_usage()).map(|u| u.fraction() as f32);
         if !self.animating() {
             self.stop_animation();
             self.down.snap(self.down.target, &self.cfg.heat, self.dark, ink(self.dark));
@@ -806,7 +969,8 @@ unsafe extern "system" fn main_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM
 /// Runs the monitor until the user exits. Returns immediately if one is already running.
 pub fn run(open_dashboard: bool) {
     unsafe {
-        let _mutex = CreateMutexW(None, true, w!("Local\\SpeedMeter.Monitor"));
+        let lock = windows::core::HSTRING::from(format!("Local\\SpeedMeter.Monitor{}", config::instance_suffix()));
+        let _mutex = CreateMutexW(None, true, &lock);
         if GetLastError() == ERROR_ALREADY_EXISTS {
             return;
         }
@@ -821,7 +985,7 @@ pub fn run(open_dashboard: bool) {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
             lpfnWndProc: Some(main_proc),
             hInstance: hinst.into(),
-            lpszClassName: MAIN_CLASS,
+            lpszClassName: PCWSTR(main_class().as_ptr()),
             ..Default::default()
         };
         RegisterClassExW(&wc);
@@ -832,7 +996,7 @@ pub fn run(open_dashboard: bool) {
         // TaskbarCreated and WM_SETTINGCHANGE broadcasts.
         let Ok(hwnd) = CreateWindowExW(
             WS_EX_TOOLWINDOW,
-            MAIN_CLASS,
+            main_class(),
             w!("SpeedMeter monitor"),
             WS_POPUP,
             0,

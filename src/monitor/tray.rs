@@ -7,16 +7,20 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{LoadIconMetric, LIM_SMALL};
 use windows::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE,
-    NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICONDATAW_0, NOTIFYICON_VERSION_4,
+    Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_INFO,
+    NIIF_RESPECT_QUIET_TIME, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
+    NOTIFYICONDATAW, NOTIFYICONDATAW_0, NOTIFYICON_VERSION_4,
 };
 use windows::Win32::UI::WindowsAndMessaging::HICON;
+use std::time::{Duration, Instant};
 
 pub struct Tray {
     hwnd: HWND,
     icon: HICON,
     added: bool,
     tip: String,
+    /// Shown only for a notification (the user hides the icon); remove it after this.
+    temporary_until: Option<Instant>,
 }
 
 impl Tray {
@@ -25,7 +29,37 @@ impl Tray {
             let hinst = GetModuleHandleW(None).unwrap_or_default();
             LoadIconMetric(hinst, PCWSTR(1 as *const u16), LIM_SMALL).unwrap_or_default()
         };
-        Self { hwnd, icon, added: false, tip: String::new() }
+        Self { hwnd, icon, added: false, tip: String::new(), temporary_until: None }
+    }
+
+    /// Shows a Windows notification from the tray icon. If the icon is hidden it
+    /// appears for a short while, since Windows needs it to show the notification.
+    pub fn notify(&mut self, title: &str, text: &str, warning: bool) {
+        if !self.added {
+            self.set_visible(true);
+            self.temporary_until = Some(Instant::now() + Duration::from_secs(30));
+        }
+        let mut nid = self.data();
+        nid.uFlags |= NIF_INFO;
+        copy_wide(&mut nid.szInfoTitle, title);
+        copy_wide(&mut nid.szInfo, text);
+        nid.dwInfoFlags = (if warning { NIIF_WARNING } else { NIIF_INFO }) | NIIF_RESPECT_QUIET_TIME;
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
+        }
+    }
+
+    /// Takes away an icon that was only there for a notification, once it's done.
+    /// `wanted` is whether the user wants the icon anyway.
+    pub fn tidy(&mut self, wanted: bool) {
+        if let Some(until) = self.temporary_until {
+            if wanted {
+                self.temporary_until = None;
+            } else if Instant::now() >= until {
+                self.temporary_until = None;
+                self.set_visible(false);
+            }
+        }
     }
 
     fn data(&self) -> NOTIFYICONDATAW {

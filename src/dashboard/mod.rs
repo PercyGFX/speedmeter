@@ -2,14 +2,18 @@
 //! memory is freed when closed. Live data comes from the monitor through shared
 //! memory; history comes straight from the SQLite file.
 
+mod apps_ui;
 mod charts;
 mod history_view;
+mod icons;
 mod live;
 mod settings;
 mod theme;
 mod ui;
 
 use crate::anim::Track;
+use crate::apps::{self, ServiceState};
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::config::{self, Config, ThemePref};
 use crate::history::{self, Row};
 use crate::net::{self, Adapter};
@@ -20,7 +24,6 @@ use history_view::HistoryState;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use theme::Palette;
-use windows::core::w;
 use windows::Win32::Foundation::{GetLastError, BOOL, COLORREF, ERROR_ALREADY_EXISTS, HWND};
 use windows::Win32::Graphics::Dwm::{
     DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
@@ -44,6 +47,30 @@ pub enum UpdateState {
     },
     Installing(String),
     Failed(String),
+}
+
+/// The per-app counting service, as last checked.
+pub struct Service {
+    pub state: ServiceState,
+    /// Version of the running service, once it has published anything.
+    pub version: Option<u32>,
+    /// Why it isn't counting, if it says so.
+    pub error: Option<String>,
+    checked: Option<Instant>,
+    /// Waiting for the administrator prompt or the setup to finish.
+    pub busy: Arc<AtomicBool>,
+    /// What went wrong with the last change.
+    pub failed: Arc<Mutex<Option<String>>>,
+}
+
+impl Service {
+    pub fn needs_update(&self) -> bool {
+        self.state == ServiceState::Running && self.version.is_some_and(|v| v < crate::appnet::SERVICE_VERSION)
+    }
+
+    pub fn installed(&self) -> bool {
+        self.state != ServiceState::NotInstalled
+    }
 }
 
 pub struct App {
@@ -75,7 +102,16 @@ pub struct App {
     slow_checked: Instant,
     hwnd: Option<isize>,
     styled: Option<Palette>,
-    has_icons: bool,
+    /// The Fluent icon font loaded.
+    pub has_icons: bool,
+    pub icons: icons::Icons,
+    pub service: Service,
+    pub first_app_day: Option<chrono::NaiveDate>,
+    pub app_rates: apps_ui::AppRates,
+    pub confirm_clear_apps: bool,
+    /// Week and monthly-period totals before today, for limits.
+    #[allow(clippy::type_complexity)]
+    limit_cache: Option<(Instant, (chrono::NaiveDate, u32), ((u64, u64), (u64, u64)))>,
     logo: egui::TextureHandle,
     pub update: Arc<Mutex<UpdateState>>,
     ctx: egui::Context,
@@ -160,13 +196,77 @@ impl App {
             hwnd: window_hwnd(cc),
             styled: None,
             has_icons,
+            icons: icons::Icons::new(),
+            service: Service {
+                state: ServiceState::NotInstalled,
+                version: None,
+                error: None,
+                checked: None,
+                busy: Arc::new(AtomicBool::new(false)),
+                failed: Arc::new(Mutex::new(None)),
+            },
+            first_app_day: None,
+            app_rates: apps_ui::AppRates::default(),
+            confirm_clear_apps: false,
+            limit_cache: None,
             logo,
             update: Arc::new(Mutex::new(UpdateState::Idle)),
             ctx: cc.egui_ctx.clone(),
         };
         app.first_day = app.db().and_then(history::first_day);
+        app.first_app_day = app.db().and_then(history::first_app_day);
         app.check_updates(false);
         app
+    }
+
+    /// Checks the per-app counting service (at most every two seconds).
+    pub fn refresh_service(&mut self) {
+        if self.service.checked.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
+            return;
+        }
+        self.service.checked = Some(Instant::now());
+        self.service.state = apps::service_state();
+        let (version, error) = match apps::service_report() {
+            Some((v, e)) => (Some(v), e),
+            None => (None, None),
+        };
+        self.service.version = version;
+        self.service.error = error;
+    }
+
+    /// Installs, updates or removes the per-app counting service. Windows asks for
+    /// an administrator's approval first.
+    pub fn change_service(&mut self, install: bool) {
+        if self.service.busy.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        if let Ok(mut f) = self.service.failed.lock() {
+            *f = None;
+        }
+        let busy = self.service.busy.clone();
+        let failed = self.service.failed.clone();
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = apps::change_service(install) {
+                if let Ok(mut f) = failed.lock() {
+                    *f = Some(e);
+                }
+            }
+            busy.store(false, Ordering::Release);
+            ctx.request_repaint();
+        });
+        self.service.checked = None;
+    }
+
+    /// Deletes the per-app history only.
+    pub fn clear_app_history(&mut self) {
+        if let Some(db) = self.db() {
+            if let Err(e) = history::clear_apps(db) {
+                sys::log(&format!("clearing app history failed: {e}"));
+            }
+        }
+        self.hist.invalidate();
+        self.first_app_day = None;
     }
 
     pub fn animating(&self) -> bool {
@@ -205,6 +305,34 @@ impl App {
         (t, m)
     }
 
+    /// Data limits that are on, with what's used of each (today live from the meter).
+    pub fn limit_usage(&mut self) -> Vec<crate::limits::Usage> {
+        use crate::limits;
+        let cfg = self.cfg.limits.clone();
+        if !cfg.any() {
+            return Vec::new();
+        }
+        let today = history::today();
+        let key = (today, cfg.month_starts);
+        let fresh = self.limit_cache.as_ref().is_some_and(|(at, k, _)| *k == key && at.elapsed() < Duration::from_secs(30));
+        if !fresh {
+            let day = history::day_key(today);
+            let before = self
+                .db()
+                .map(|db| {
+                    let week = history::sum_days(db, &history::day_key(limits::week_start(today)), &day);
+                    let period = history::sum_days(db, &history::day_key(limits::month_start(today, cfg.month_starts)), &day);
+                    (week, period)
+                })
+                .unwrap_or_default();
+            self.limit_cache = Some((Instant::now(), key, before));
+        }
+        let (week, period) = self.limit_cache.as_ref().map(|c| c.2).unwrap_or_default();
+        let (t, _) = self.totals();
+        let add = |a: (u64, u64)| (a.0 + t.0, a.1 + t.1);
+        limits::usages(&cfg, today, t, add(week), add(period))
+    }
+
     pub fn last_24h(&mut self) -> Vec<Row> {
         if let Some((at, rows)) = &self.last24_cache {
             if at.elapsed() < Duration::from_secs(60) {
@@ -232,6 +360,8 @@ impl App {
         monitor::notify_reload(true);
         self.hist.invalidate();
         self.first_day = None;
+        self.first_app_day = None;
+        self.limit_cache = None;
         self.totals_cache = None;
         self.last24_cache = None;
     }
@@ -290,6 +420,7 @@ impl App {
         }
         if let Some(r) = &self.reader {
             if let Some(s) = r.snapshot() {
+                self.app_rates.update(&s);
                 self.snap = Some(s);
             }
             let page = r.take_page_request();
@@ -472,14 +603,18 @@ impl eframe::App for App {
                     .fill(p.content)
                     .stroke(Stroke::new(1.0_f32, p.edge))
                     .corner_radius(CornerRadius { nw: 8, ne: 0, sw: 0, se: 0 })
-                    .inner_margin(Margin { left: 32, right: 32, top: 24, bottom: 12 }),
+                    .inner_margin(Margin { left: 32, right: 10, top: 24, bottom: 12 }),
             )
             .show(ctx, |ui| {
                 self.view_h = ui.available_height();
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.page {
-                    PAGE_HISTORY => history_view::show(self, ui),
-                    PAGE_SETTINGS => settings::show(self, ui),
-                    _ => live::show(self, ui),
+                // The scroll bar sits in the right margin, clear of the content.
+                // Each page keeps its own scroll position.
+                egui::ScrollArea::vertical().id_salt(("page", self.page)).auto_shrink([false, false]).show(ui, |ui| {
+                    egui::Frame::NONE.inner_margin(Margin { left: 0, right: 22, top: 0, bottom: 0 }).show(ui, |ui| match self.page {
+                        PAGE_HISTORY => history_view::show(self, ui),
+                        PAGE_SETTINGS => settings::show(self, ui),
+                        _ => live::show(self, ui),
+                    });
                 });
             });
         self.save_if_needed(ctx);
@@ -504,7 +639,8 @@ impl eframe::App for App {
 
 /// Opens the dashboard, or focuses the one that's already open.
 pub fn run(page: u32) {
-    let _single = unsafe { CreateMutexW(None, true, w!("Local\\SpeedMeter.Dashboard")) };
+    let name = windows::core::HSTRING::from(format!("Local\\SpeedMeter.Dashboard{}", config::instance_suffix()));
+    let _single = unsafe { CreateMutexW(None, true, &name) };
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         if let Some(h) = sys::find_own_window(TITLE) {
             if let Some(r) = Reader::open() {

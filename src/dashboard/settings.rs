@@ -109,6 +109,170 @@ fn swatch(ui: &mut Ui, color: egui::Color32) {
     ui.painter().rect_filled(r, 4, color);
 }
 
+/// Daily, weekly and monthly limits, with how much of each is used.
+fn data_limits(app: &mut App, ui: &mut Ui) {
+    use crate::limits::Period;
+    let p = app.pal;
+    let usage = app.limit_usage();
+    let used = |period: Period| usage.iter().find(|u| u.period == period).copied();
+    let rows = [
+        (Period::Day, "Daily limit", "today"),
+        (Period::Week, "Weekly limit", "this week"),
+        (Period::Month, "Monthly limit", "this month"),
+    ];
+    for (period, title, when) in rows {
+        let desc = match used(period) {
+            Some(u) => format!("Used {} {when}. It {}.", u.summary(), u.resets_text()),
+            None => "Off.".to_string(),
+        };
+        let l = &mut app.cfg.limits;
+        let limit = match period {
+            Period::Day => &mut l.daily,
+            Period::Week => &mut l.weekly,
+            Period::Month => &mut l.monthly,
+        };
+        ui::setting_row(ui, &p, title, Some(&desc), |ui| {
+            ui::toggle(ui, &p, &mut limit.on);
+            if limit.on {
+                ui.add_space(10.0);
+                ui.add(
+                    egui::DragValue::new(&mut limit.gb)
+                        .range(0.1..=100_000.0)
+                        .speed(0.25)
+                        .suffix(" GB")
+                        // "5 GB", "2.5 GB": no ".0" on whole numbers.
+                        .custom_formatter(|v, _| if v.fract().abs() < 0.05 { format!("{v:.0}") } else { format!("{v:.1}") }),
+                );
+            }
+        });
+        if period == Period::Month && app.cfg.limits.monthly.on {
+            ui::setting_row(
+                ui,
+                &p,
+                "Monthly limit starts on",
+                Some("The day of the month your allowance starts again, like a billing date."),
+                |ui| {
+                    ui.add(egui::DragValue::new(&mut app.cfg.limits.month_starts).range(1..=28).speed(0.1).prefix("Day "));
+                },
+            );
+        }
+    }
+    let l = &mut app.cfg.limits;
+    ui::setting_row(ui, &p, "What counts", Some("Some plans only count what you download."), |ui| {
+        ui::segmented(ui, &p, "limit-count", &mut l.download_only, &[(false, "Download and upload"), (true, "Download only")]);
+    });
+    ui::setting_row(
+        ui,
+        &p,
+        "Bar on the taskbar meter",
+        Some("A thin bar under the numbers: blue, amber from 80%, red at 100%. Hover the meter to see every limit."),
+        |ui| {
+            ui::toggle(ui, &p, &mut l.bar);
+        },
+    );
+    if l.bar && l.any() {
+        use crate::config::BarShows;
+        let mut options = vec![(BarShows::Closest, "Closest to its limit")];
+        for (on, choice, label) in [(l.daily.on, BarShows::Daily, "Daily"), (l.weekly.on, BarShows::Weekly, "Weekly"), (l.monthly.on, BarShows::Monthly, "Monthly")] {
+            if on {
+                options.push((choice, label));
+            }
+        }
+        // A picked limit that was turned off falls back to the closest one.
+        if !options.iter().any(|(c, _)| *c == l.bar_shows) {
+            l.bar_shows = BarShows::Closest;
+        }
+        if options.len() > 2 {
+            ui::setting_row(ui, &p, "The bar shows", None, |ui| {
+                ui::segmented(ui, &p, "bar-shows", &mut l.bar_shows, &options);
+            });
+        }
+    }
+    ui::setting_row(ui, &p, "Notifications", Some("A Windows notification at 80%, at 100%, and every 25% over."), |ui| {
+        ui::toggle(ui, &p, &mut l.notify);
+    });
+}
+
+/// The per-app counting service: on, off, its status, and its data.
+fn per_app(app: &mut App, ui: &mut Ui) {
+    use crate::apps::ServiceState;
+    use std::sync::atomic::Ordering;
+    let p = app.pal;
+    app.refresh_service();
+    let busy = app.service.busy.load(Ordering::Acquire);
+    let s = &app.service;
+    // (title, description, button, primary, install?)
+    let (title, desc, button, primary, install): (&str, String, Option<&str>, bool, bool) = if busy {
+        ("Waiting for administrator approval", "Windows asks before a service is added, changed or removed.".into(), None, false, true)
+    } else if s.state == ServiceState::NotInstalled {
+        (
+            "Count data per app",
+            "Shows which apps use your data, live and in History. A small background service does the counting under Windows' \
+             limited Local Service account and shares only byte counts per app. Turning it on asks for administrator approval once."
+                .into(),
+            Some("Turn on"),
+            true,
+            true,
+        )
+    } else if s.needs_update() {
+        ("Per-app counter update", "This version of SpeedMeter comes with a newer counter.".into(), Some("Update"), true, true)
+    } else if s.state == ServiceState::Stopped {
+        ("Per-app counter is stopped", "The SpeedMeter per-app counter service isn't running.".into(), Some("Start"), true, true)
+    } else if let Some(e) = &s.error {
+        ("Per-app counter has a problem", e.clone(), Some("Restart"), false, true)
+    } else {
+        (
+            "Counting data per app",
+            "The SpeedMeter per-app counter service is running. Turning it off removes the service; your per-app history stays."
+                .into(),
+            Some("Turn off"),
+            false,
+            false,
+        )
+    };
+    ui::setting_row(ui, &p, title, Some(&desc), |ui| match button {
+        Some(label) => {
+            if ui::button(ui, &p, label, primary).clicked() {
+                app.change_service(install);
+            }
+            if install && app.service.installed() && label != "Turn on" {
+                if ui::button(ui, &p, "Turn off", false).clicked() {
+                    app.change_service(false);
+                }
+            }
+        }
+        None => {
+            ui.add(egui::Spinner::new().color(p.accent));
+        }
+    });
+    let failed = app.service.failed.lock().ok().and_then(|f| f.clone());
+    if let Some(e) = failed {
+        ui::setting_row(ui, &p, "That didn't work", Some(&e), |_| {});
+    }
+
+    if app.confirm_clear_apps {
+        ui::setting_row(ui, &p, "Delete per-app history?", Some("This removes which apps used how much, for every day. Your totals stay."), |ui| {
+            if ui::button(ui, &p, "Cancel", false).clicked() {
+                app.confirm_clear_apps = false;
+            }
+            if ui::button(ui, &p, "Delete", true).clicked() {
+                app.clear_app_history();
+                app.confirm_clear_apps = false;
+            }
+        });
+    } else {
+        let desc = format!(
+            "Kept like the rest of your history: days forever, hours for {} days. Only app names and byte counts are stored, never addresses or content.",
+            app.cfg.keep_minutes_days
+        );
+        ui::setting_row(ui, &p, "Per-app history", Some(&desc), |ui| {
+            if ui::button(ui, &p, "Delete", false).clicked() {
+                app.confirm_clear_apps = true;
+            }
+        });
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut Ui) {
     let p = app.pal;
     app.refresh_adapters();
@@ -207,6 +371,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
     }
 
+    ui::section(ui, &p, "Data limits");
+    data_limits(app, ui);
+
     ui::section(ui, &p, "General");
     {
         let cfg = &mut app.cfg;
@@ -220,6 +387,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ui::segmented(ui, &p, "theme", &mut cfg.theme, &[(ThemePref::System, "System"), (ThemePref::Dark, "Dark"), (ThemePref::Light, "Light")]);
         });
     }
+
+    ui::section(ui, &p, "Per-app usage");
+    per_app(app, ui);
 
     ui::section(ui, &p, "Updates");
     super::update_rows(app, ui);

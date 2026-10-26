@@ -108,6 +108,10 @@ pub fn autostart_value() -> Option<String> {
 
 /// Adds or removes the HKCU Run entry. Rewrites it if the exe has moved.
 pub fn set_autostart(enable: bool) {
+    // A demo copy with its own data folder never touches the real sign-in entry.
+    if !crate::config::instance_suffix().is_empty() {
+        return;
+    }
     unsafe {
         if enable {
             let cmd = autostart_command();
@@ -192,7 +196,8 @@ pub fn find_own_window(title: &str) -> Option<HWND> {
             return true.into();
         }
         match process_exe(pid) {
-            Some(p) if p.eq(&s.exe) || p.file_name() == s.exe.file_name() => {
+            // A demo copy (own data folder) only matches its own exe.
+            Some(p) if p.eq(&s.exe) || (crate::config::instance_suffix().is_empty() && p.file_name() == s.exe.file_name()) => {
                 s.found = Some(hwnd);
                 false.into()
             }

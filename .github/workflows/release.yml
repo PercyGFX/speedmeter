@@ -49,11 +49,23 @@ jobs:
         shell: pwsh
         run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.version }}" installer\speedmeter.iss'
 
+      - name: Release notes from CHANGELOG.md
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          $text = Get-Content CHANGELOG.md -Raw
+          $m = [regex]::Match($text, "(?ms)^## \[$([regex]::Escape($v))\][^\n]*\n(.*?)(?=^## \[|^\[[0-9])")
+          if (-not $m.Success -or -not $m.Groups[1].Value.Trim()) {
+            throw "CHANGELOG.md has no section for $v. Add one before releasing."
+          }
+          $m.Groups[1].Value.Trim() | Out-File -FilePath release-notes.md -Encoding utf8
+
       - name: Publish GitHub release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: installer/Output/SpeedMeter-Setup-${{ steps.version.outputs.version }}.exe
+          body_path: release-notes.md
           generate_release_notes: true
 
       - name: Keep the installer as a build artifact

@@ -57,6 +57,77 @@ impl Default for Heat {
     }
 }
 
+/// One data allowance.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Limit {
+    pub on: bool,
+    /// Gigabytes (1024³ bytes, like the rest of the app).
+    pub gb: f64,
+}
+
+impl Default for Limit {
+    fn default() -> Self {
+        Self { on: false, gb: 100.0 }
+    }
+}
+
+impl Limit {
+    pub fn bytes(&self) -> Option<u64> {
+        (self.on && self.gb > 0.0).then(|| (self.gb * 1024.0 * 1024.0 * 1024.0) as u64)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BarShows {
+    /// Whichever limit is closest to running out.
+    Closest,
+    Daily,
+    Weekly,
+    Monthly,
+}
+
+/// Daily, weekly and monthly data limits.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Limits {
+    pub daily: Limit,
+    pub weekly: Limit,
+    pub monthly: Limit,
+    /// Day of the month the monthly allowance starts again (1 to 28), like a billing date.
+    pub month_starts: u32,
+    /// Count only downloads (some plans), instead of downloads and uploads.
+    pub download_only: bool,
+    /// Show how much is used as a bar on the taskbar meter.
+    pub bar: bool,
+    /// Which limit the bar shows.
+    pub bar_shows: BarShows,
+    /// Windows notifications at 80%, 100% and every 25% beyond.
+    pub notify: bool,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            daily: Limit { on: false, gb: 5.0 },
+            weekly: Limit { on: false, gb: 25.0 },
+            monthly: Limit { on: false, gb: 100.0 },
+            month_starts: 1,
+            download_only: false,
+            bar: true,
+            bar_shows: BarShows::Closest,
+            notify: true,
+        }
+    }
+}
+
+impl Limits {
+    pub fn any(&self) -> bool {
+        self.daily.bytes().is_some() || self.weekly.bytes().is_some() || self.monthly.bytes().is_some()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -83,6 +154,7 @@ pub struct Config {
     pub keep_minutes_days: u32,
     /// Download and install new releases in the background.
     pub auto_update: bool,
+    pub limits: Limits,
 }
 
 impl Default for Config {
@@ -106,6 +178,7 @@ impl Default for Config {
             theme: ThemePref::System,
             keep_minutes_days: 30,
             auto_update: true,
+            limits: Limits::default(),
         }
     }
 }
@@ -125,6 +198,22 @@ pub fn data_dir() -> PathBuf {
     let dir = base.join("SpeedMeter");
     let _ = std::fs::create_dir_all(&dir);
     dir
+}
+
+/// Empty for the normal copy. A copy pointed at another data folder
+/// (SPEEDMETER_DATA_DIR, for demos and testing) gets a suffix that keeps its
+/// window, locks and shared memory apart, so it can run next to the real one.
+pub fn instance_suffix() -> &'static str {
+    static SUFFIX: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SUFFIX.get_or_init(|| match std::env::var("SPEEDMETER_DATA_DIR") {
+        Ok(dir) if !dir.is_empty() => {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            dir.to_lowercase().hash(&mut h);
+            format!(".{:016x}", h.finish())
+        }
+        _ => String::new(),
+    })
 }
 
 pub fn config_path() -> PathBuf {
@@ -155,6 +244,10 @@ fn sanitize(mut c: Config) -> Config {
     c.font_size = c.font_size.clamp(8.0, 20.0);
     c.offset = c.offset.clamp(-2000, 2000);
     c.keep_minutes_days = c.keep_minutes_days.clamp(1, 3650);
+    c.limits.month_starts = c.limits.month_starts.clamp(1, 28);
+    for l in [&mut c.limits.daily, &mut c.limits.weekly, &mut c.limits.monthly] {
+        l.gb = if l.gb.is_finite() { l.gb.clamp(0.1, 1_000_000.0) } else { 100.0 };
+    }
     if c.font.trim().is_empty() {
         c.font = Config::default().font;
     }

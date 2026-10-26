@@ -26,37 +26,62 @@ fn text_width(ui: &Ui, text: &str, font: &FontId) -> f32 {
     ui.fonts(|f| f.layout_no_wrap(text.to_string(), font.clone(), Color32::WHITE).size().x)
 }
 
-/// Windows 11 style selector: a track with the chosen option raised and marked
-/// by a short accent pill. Returns true when the value changed.
+/// Segmented selector: a recessed track with the chosen option on a raised tile
+/// that slides to a new choice. Returns true when the value changed.
 pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, p: &Palette, id: &str, value: &mut T, options: &[(T, &str)]) -> bool {
     let font = theme::body(13.0);
+    let chosen_font = theme::strong(13.0);
     let h = 30.0;
-    let widths: Vec<f32> = options.iter().map(|(_, l)| text_width(ui, l, &font) + 28.0).collect();
-    let total: f32 = widths.iter().sum::<f32>() + 6.0;
+    let pad = 3.0;
+    // Size each option for its semibold label, so text doesn't shift when chosen.
+    let widths: Vec<f32> = options.iter().map(|(_, l)| text_width(ui, l, &chosen_font) + 26.0).collect();
+    let total: f32 = widths.iter().sum::<f32>() + pad * 2.0;
     let (rect, _) = ui.allocate_exact_size(vec2(total, h), Sense::hover());
     let painter = ui.painter().clone();
-    painter.rect_filled(rect, CornerRadius::same(7), p.layer);
-    painter.rect_stroke(rect, CornerRadius::same(7), Stroke::new(1.0_f32, p.line), StrokeKind::Inside);
-    let mut x = rect.left() + 3.0;
+    let (track, tile, edge) = if p.dark {
+        (theme::blend(p.content, Color32::BLACK, 0.18), theme::blend(p.selected, p.text, 0.06), Color32::from_rgba_unmultiplied(255, 255, 255, 30))
+    } else {
+        (theme::blend(p.selected, p.content, 0.35), p.layer, Color32::from_black_alpha(22))
+    };
+    painter.rect_filled(rect, CornerRadius::same(8), track);
+    painter.rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0_f32, p.line), StrokeKind::Inside);
+
+    let slots: Vec<Rect> = widths
+        .iter()
+        .scan(rect.left() + pad, |x, w| {
+            let r = Rect::from_min_size(pos2(*x, rect.top() + pad), vec2(*w, h - pad * 2.0));
+            *x += w;
+            Some(r)
+        })
+        .collect();
     let mut changed = false;
-    for (i, (val, label)) in options.iter().enumerate() {
-        let r = Rect::from_min_size(pos2(x, rect.top() + 3.0), vec2(widths[i], h - 6.0));
-        let resp = ui.interact(r, ui.id().with((id, i)), Sense::click());
-        let selected = *value == *val;
-        if selected {
-            painter.rect_filled(r, CornerRadius::same(5), p.selected);
-            let pill = Rect::from_center_size(pos2(r.center().x, r.bottom() - 2.5), vec2(14.0, 3.0));
-            painter.rect_filled(pill, CornerRadius::same(2), p.accent);
-        } else if resp.hovered() {
-            painter.rect_filled(r, CornerRadius::same(5), p.hover);
+    let mut chosen = options.iter().position(|(v, _)| v == value);
+    for (i, (val, _)) in options.iter().enumerate() {
+        let resp = ui.interact(slots[i], ui.id().with((id, i)), Sense::click());
+        if Some(i) != chosen && resp.hovered() {
+            painter.rect_filled(slots[i].shrink(1.0), CornerRadius::same(5), theme::blend(track, p.text, 0.05));
         }
-        let color = if selected { p.text } else { p.dim };
-        painter.text(r.center() - vec2(0.0, 1.0), Align2::CENTER_CENTER, *label, font.clone(), color);
-        if resp.clicked() && !selected {
+        if resp.clicked() && Some(i) != chosen {
             *value = *val;
+            chosen = Some(i);
             changed = true;
         }
-        x += widths[i];
+    }
+
+    // The raised tile glides to the chosen option.
+    if let Some(c) = chosen {
+        let ctx = ui.ctx();
+        let anim = |part: &str, v: f32| ctx.animate_value_with_time(ui.id().with((id, "tile", part)), v, 0.14);
+        let target = slots[c];
+        let tile_rect = Rect::from_min_size(pos2(anim("x", target.left()), target.top()), vec2(anim("w", target.width()), target.height()));
+        let shadow = egui::Shadow { offset: [0, 1], blur: 3, spread: 0, color: Color32::from_black_alpha(if p.dark { 70 } else { 26 }) };
+        painter.add(shadow.as_shape(tile_rect, CornerRadius::same(6)));
+        painter.rect_filled(tile_rect, CornerRadius::same(6), tile);
+        painter.rect_stroke(tile_rect, CornerRadius::same(6), Stroke::new(1.0_f32, edge), StrokeKind::Inside);
+    }
+    for (i, (_, label)) in options.iter().enumerate() {
+        let (f, color) = if Some(i) == chosen { (chosen_font.clone(), p.text) } else { (font.clone(), p.dim) };
+        painter.text(slots[i].center(), Align2::CENTER_CENTER, *label, f, color);
     }
     changed
 }

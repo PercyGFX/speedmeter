@@ -9,15 +9,21 @@
 //! Other flags: `--open` (start if needed and show the window, used after an update),
 //! `--quit` (close every running SpeedMeter cleanly, used by the installer),
 //! `--page live|history|settings`.
+//!
+//! Per-app counting lives in a second, optional executable, speedmeter-service.exe
+//! (src/service), which the meter reads through `appnet`.
 
 #![windows_subsystem = "windows"]
 
 mod anim;
+mod appnet;
+mod apps;
 mod config;
 mod dashboard;
 mod format;
 mod heat;
 mod history;
+mod limits;
 mod monitor;
 mod net;
 mod shared;

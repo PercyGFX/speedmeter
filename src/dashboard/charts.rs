@@ -193,8 +193,9 @@ pub struct Bar {
 }
 
 /// History bars: download above the wire, upload below, colored by how big each
-/// total is next to the biggest one in view. Returns the index of a clicked bar.
-pub fn mirrored_bars(ui: &mut Ui, p: &Palette, id: &str, bars: &[Bar], height: f32, animate: bool, axis: bool) -> Option<usize> {
+/// total is next to the biggest one in view. `selected` marks one bar. Returns the
+/// index of a clicked bar.
+pub fn mirrored_bars(ui: &mut Ui, p: &Palette, id: &str, bars: &[Bar], height: f32, animate: bool, axis: bool, selected: Option<usize>) -> Option<usize> {
     let width = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     let painter = ui.painter_at(rect.expand(1.0));
@@ -223,7 +224,19 @@ pub fn mirrored_bars(ui: &mut Ui, p: &Palette, id: &str, bars: &[Bar], height: f
         .filter(|pp| pp.y >= plot.top() && pp.y <= rect.bottom())
         .map(|pp| ((pp.x - plot.left()) / slot).floor() as usize)
         .filter(|i| *i < bars.len());
-    if let Some(i) = hover_i {
+    if let Some(i) = selected.filter(|i| *i < bars.len()) {
+        let x0 = plot.left() + slot * i as f32;
+        painter.rect_filled(
+            Rect::from_min_max(pos2(x0, plot.top()), pos2(x0 + slot, plot.bottom())),
+            CornerRadius::same(4),
+            // A solid tint: egui blends see-through colors in linear light, which
+            // makes even faint white come out bright.
+            theme::blend(p.content, p.text, if p.dark { 0.09 } else { 0.06 }),
+        );
+        let pill = Rect::from_center_size(pos2(x0 + slot / 2.0, plot.bottom() + 2.5), vec2(slot.clamp(6.0, 16.0), 3.0));
+        painter.rect_filled(pill, CornerRadius::same(2), p.accent);
+    }
+    if let Some(i) = hover_i.filter(|i| Some(*i) != selected) {
         let x0 = plot.left() + slot * i as f32;
         painter.rect_filled(
             Rect::from_min_max(pos2(x0, plot.top()), pos2(x0 + slot, plot.bottom())),
@@ -361,18 +374,69 @@ pub fn calendar(ui: &mut Ui, p: &Palette, year: i32, month: u32, rows: &[Row], t
     clicked
 }
 
+/// What sits in front of a row's label (the app list uses icons).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Lead {
+    #[default]
+    None,
+    Image(egui::TextureId),
+    /// A Fluent icon font glyph.
+    Glyph(char),
+    /// First letter, on a small tile.
+    Letter(char),
+}
+
+#[derive(Clone, Default)]
 pub struct TableRow {
     pub label: String,
+    /// Dim text after the label, such as the exe name.
+    pub detail: String,
+    pub lead: Lead,
     pub rx: u64,
     pub tx: u64,
+    /// Lines for a hover tooltip; none if empty.
+    pub tip: Vec<(String, Color32, egui::FontId)>,
+}
+
+/// Lays out one line of text, cut short with "…" if it's wider than `max_w`.
+pub fn fit(painter: &egui::Painter, text: &str, font: egui::FontId, color: Color32, max_w: f32) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), font, color);
+    job.wrap = egui::text::TextWrapping { max_width: max_w.max(8.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+    painter.layout_job(job)
+}
+
+pub fn draw_lead(painter: &egui::Painter, p: &Palette, rect: Rect, lead: Lead) {
+    match lead {
+        Lead::None => {}
+        Lead::Image(id) => {
+            let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+            painter.image(id, rect, uv, Color32::WHITE);
+        }
+        Lead::Glyph(g) => {
+            painter.rect_filled(rect, CornerRadius::same(5), p.selected);
+            painter.text(rect.center(), Align2::CENTER_CENTER, g.to_string(), theme::icon(rect.height() * 0.6), p.dim);
+        }
+        Lead::Letter(c) => {
+            painter.rect_filled(rect, CornerRadius::same(5), p.selected);
+            painter.text(rect.center(), Align2::CENTER_CENTER, c.to_string(), theme::strong(rect.height() * 0.58), p.dim);
+        }
+    }
 }
 
 /// Plain list of totals, newest first, with an inline bar. Returns a clicked row.
 pub fn table(ui: &mut Ui, p: &Palette, first_col: &str, rows: &[TableRow], clickable: bool) -> Option<usize> {
     let width = ui.available_width();
-    let cols = [0.0, width * 0.40, width * 0.56, width * 0.72];
-    let bar_x = width * 0.76;
+    let leads = rows.iter().any(|r| r.lead != Lead::None);
+    // App names need more room than dates.
+    let (cols, bar_x) = if leads {
+        ([0.0, width * 0.50, width * 0.64, width * 0.78], width * 0.82)
+    } else {
+        ([0.0, width * 0.40, width * 0.56, width * 0.72], width * 0.76)
+    };
     let max = rows.iter().map(|r| r.rx + r.tx).max().unwrap_or(0).max(1) as f64;
+    let label_x = if leads { 36.0 } else { 4.0 };
+    // Leave room for the right-aligned download figure.
+    let label_w = cols[1] - 84.0 - label_x;
 
     let (head, _) = ui.allocate_exact_size(vec2(width, 26.0), Sense::hover());
     let painter = ui.painter();
@@ -391,7 +455,20 @@ pub fn table(ui: &mut Ui, p: &Palette, first_col: &str, rows: &[TableRow], click
         }
         painter.line_segment([rect.left_top(), rect.right_top()], Stroke::new(1.0_f32, p.line));
         let y = rect.center().y;
-        painter.text(pos2(rect.left() + 4.0, y), Align2::LEFT_CENTER, &r.label, theme::body(13.5), p.text);
+        if r.lead != Lead::None {
+            draw_lead(painter, p, Rect::from_center_size(pos2(rect.left() + 16.0, y), vec2(20.0, 20.0)), r.lead);
+        }
+        let label = fit(painter, &r.label, theme::body(13.5), p.text, label_w);
+        let label_end = rect.left() + label_x + label.size().x;
+        painter.galley(pos2(rect.left() + label_x, y - label.size().y / 2.0), label, p.text);
+        let room = rect.left() + label_x + label_w - label_end - 8.0;
+        if !r.detail.is_empty() && room > 30.0 {
+            // Only whole: a cut-off file name says little.
+            let detail = painter.layout_no_wrap(r.detail.clone(), theme::body(12.0), p.faint);
+            if detail.size().x <= room {
+                painter.galley(pos2(label_end + 8.0, y - detail.size().y / 2.0), detail, p.faint);
+            }
+        }
         let values = [r.rx, r.tx, r.rx + r.tx];
         for (k, v) in values.iter().enumerate() {
             let color = if k == 2 { p.text } else { p.dim };
@@ -406,6 +483,11 @@ pub fn table(ui: &mut Ui, p: &Palette, first_col: &str, rows: &[TableRow], click
         }
         if clickable && resp.clicked() {
             clicked = Some(i);
+        }
+        if !r.tip.is_empty() {
+            if let Some(pp) = resp.hover_pos() {
+                ui::tooltip(ui.ctx(), p, pp, &r.tip);
+            }
         }
     }
     clicked

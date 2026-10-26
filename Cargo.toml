@@ -1,6 +1,6 @@
 [package]
 name = "speedmeter"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Network speed monitor for the Windows 11 taskbar, with traffic history"
 build = "build.rs"
@@ -8,6 +8,11 @@ build = "build.rs"
 [[bin]]
 name = "speedmeter"
 path = "src/main.rs"
+
+# Counts data per app. Installed as a Local Service service (see src/service/main.rs).
+[[bin]]
+name = "speedmeter-service"
+path = "src/service/main.rs"
 
 [dependencies]
 eframe = "0.31"
@@ -22,7 +27,18 @@ raw-window-handle = "0.6"
 [dependencies.windows]
 version = "0.58"
 features = [
+    "ApplicationModel",
+    "Foundation",
+    "Foundation_Collections",
+    "Win32_UI_Shell_Common",
     "Foundation_Numerics",
+    "Management_Deployment",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_Etw",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Services",
+    "Win32_System_Time",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Direct2D",

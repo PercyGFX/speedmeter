@@ -6,6 +6,11 @@
 ; Installs per user into %LOCALAPPDATA%\Programs\SpeedMeter, so no admin prompt.
 ; The in-app updater runs this silently:
 ;   SpeedMeter-Setup-x.y.z.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /launch=--background
+;
+; The optional per-app counter (speedmeter-service.exe) is a Windows service, so
+; setting it up asks for administrator approval. That only happens when the
+; "Count data per app" task is ticked in an interactive install, never in a silent
+; update; the app offers to update an older counter itself.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -44,13 +49,19 @@ RestartApplications=no
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[Tasks]
+Name: "perapp"; Description: "Count data per app (asks for administrator approval)"; Check: not CounterInstalled
+
 [Files]
 Source: "..\target\release\speedmeter.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\target\release\speedmeter-service.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\SpeedMeter"; Filename: "{app}\speedmeter.exe"; Parameters: "--open"
 
 [Run]
+; Per-app counter: copies itself to Program Files and registers the service (elevated).
+Filename: "{app}\speedmeter-service.exe"; Parameters: "--install"; Verb: "runas"; StatusMsg: "Setting up per-app counting..."; Flags: shellexec waituntilterminated runhidden; Tasks: perapp; Check: not WizardSilent
 ; Normal install: offer to start SpeedMeter (opens the window).
 Filename: "{app}\speedmeter.exe"; Parameters: "--open"; Description: "Start SpeedMeter"; Flags: nowait postinstall skipifsilent
 ; Silent update: start it again the way the updater asked (--background or --open).
@@ -58,12 +69,20 @@ Filename: "{app}\speedmeter.exe"; Parameters: "{param:launch|--background}"; Fla
 
 [UninstallRun]
 Filename: "{app}\speedmeter.exe"; Parameters: "--quit"; Flags: runhidden waituntilterminated; RunOnceId: "QuitSpeedMeter"
+; Removing the per-app counter service asks for administrator approval.
+Filename: "{app}\speedmeter-service.exe"; Parameters: "--uninstall"; Verb: "runas"; Flags: shellexec waituntilterminated runhidden; RunOnceId: "RemoveCounter"; Check: CounterInstalled
 
 [Registry]
 ; The app writes this value itself ("Start with Windows"); remove it on uninstall.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "SpeedMeter"; Flags: uninsdeletevalue dontcreatekey
 
 [Code]
+// The per-app counter service is registered (any user can read this key).
+function CounterInstalled: Boolean;
+begin
+  Result := RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\SpeedMeterApps');
+end;
+
 // Ask a running SpeedMeter to close before files are replaced. It saves the
 // minute of history in progress on the way out.
 function PrepareToInstall(var NeedsRestart: Boolean): String;

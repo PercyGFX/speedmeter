@@ -168,6 +168,11 @@ impl Sampler {
         self.active.iter().filter_map(|l| self.adapters.iter().find(|a| a.luid == *l)).collect()
     }
 
+    /// LUIDs of the adapters currently being measured.
+    pub fn active_luids(&self) -> &[u64] {
+        &self.active
+    }
+
     pub fn force_refresh(&mut self) {
         self.refreshed = None;
     }

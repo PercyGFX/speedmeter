@@ -52,6 +52,9 @@ pub struct Scene<'a> {
     /// Hover highlight strength, 0 to 1.
     pub hover: f32,
     pub scale: f32,
+    /// How full the tightest data limit is (1.0 = reached, more = over), drawn as a
+    /// thin bar under the numbers. None hides it.
+    pub limit: Option<f32>,
 }
 
 struct Surface {
@@ -104,6 +107,8 @@ struct Geo {
     group_gap: f32,
     content_w: f32,
     content_h: f32,
+    /// Room under the numbers for the data-limit bar (0 without one).
+    bar: f32,
 }
 
 pub struct Renderer {
@@ -228,9 +233,10 @@ impl Renderer {
         let (grow, streaks) = if cfg.animations { (MAX_GROW, fs * 1.6) } else { (1.0, 0.0) };
         let group_w = row_w * grow + streaks;
         let group_gap = fs * 0.9;
+        let bar = if cfg.limits.bar && cfg.limits.any() { fs * 0.45 } else { 0.0 };
         let (content_w, content_h) = match cfg.layout {
-            Layout::Stacked => (group_w, row_h * (1.0 + grow)),
-            Layout::Inline => (group_w * 2.0 + group_gap, row_h * grow),
+            Layout::Stacked => (group_w, row_h * (1.0 + grow) + bar),
+            Layout::Inline => (group_w * 2.0 + group_gap, row_h * grow + bar),
         };
         Geo {
             pad_x: if floating { fs * 0.9 } else { fs * 0.55 },
@@ -244,6 +250,7 @@ impl Renderer {
             group_gap,
             content_w,
             content_h,
+            bar,
         }
     }
 
@@ -364,9 +371,11 @@ impl Renderer {
 
             let left = (w - g.content_w) / 2.0;
             let rows = if cfg.upload_first { [(false, s.up), (true, s.down)] } else { [(true, s.down), (false, s.up)] };
-            // Never let grown rows spill outside the widget.
-            let room = h - 2.0;
-            match cfg.layout {
+            // Never let grown rows spill outside the widget (or onto the limit bar).
+            let bar = if s.limit.is_some() { g.bar } else { 0.0 };
+            let room = h - 2.0 - bar;
+            // (left, right, bottom) of the numbers, for the bar.
+            let (text_l, text_r, rows_bottom) = match cfg.layout {
                 Layout::Stacked => {
                     let (mut s0, mut s1) = (rows[0].1.scale.max(0.5), rows[1].1.scale.max(0.5));
                     let total = g.row_h * (s0 + s1);
@@ -375,20 +384,53 @@ impl Renderer {
                         s0 *= f;
                         s1 *= f;
                     }
-                    let top = (h - g.row_h * (s0 + s1)) / 2.0;
+                    let top = (h - g.row_h * (s0 + s1) - bar) / 2.0;
                     let right = left + g.group_w;
                     self.paint_row(rt, &brush, s, &g, left, right, top + g.row_h * s0 / 2.0, s0, rows[0], ink);
                     self.paint_row(rt, &brush, s, &g, left, right, top + g.row_h * s0 + g.row_h * s1 / 2.0, s1, rows[1], ink);
+                    (right - g.row_w, right, top + g.row_h * (s0 + s1))
                 }
                 Layout::Inline => {
+                    let cy = (h - bar) / 2.0;
+                    let mut bottom: f32 = 0.0;
                     for (i, row) in rows.iter().enumerate() {
                         let sc = row.1.scale.max(0.5).min(room / g.row_h);
                         let l = left + i as f32 * (g.group_w + g.group_gap);
-                        self.paint_row(rt, &brush, s, &g, l, l + g.group_w, h / 2.0, sc, *row, ink);
+                        self.paint_row(rt, &brush, s, &g, l, l + g.group_w, cy, sc, *row, ink);
+                        bottom = bottom.max(cy + g.row_h * sc / 2.0);
                     }
+                    (left + g.group_w - g.row_w, left + g.group_w * 2.0 + g.group_gap, bottom)
                 }
-            }
+            };
             rt.SetTransform(&IDENTITY);
+            if let Some(f) = s.limit {
+                self.paint_limit(rt, &brush, s, text_l, text_r, rows_bottom + bar * 0.5, f, ink);
+            }
+        }
+    }
+
+    /// The data-limit bar: a faint track filled as far as the limit is used, blue
+    /// until 80%, amber until 100%, red once it's reached.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_limit(&self, rt: &ID2D1DCRenderTarget, brush: &ID2D1SolidColorBrush, s: &Scene, l: f32, r: f32, cy: f32, fraction: f32, ink: [u8; 3]) {
+        let thick = (s.cfg.font_size * 0.17).clamp(2.0, 3.0);
+        let ramp = heat::ramp(s.dark);
+        let color = if fraction >= 1.0 {
+            ramp.extreme
+        } else if fraction >= 0.8 {
+            ramp.heavy
+        } else {
+            ramp.busy
+        };
+        let (t, b) = (cy - thick / 2.0, cy + thick / 2.0);
+        unsafe {
+            brush.SetColor(&rgba(ink, 0.16));
+            rt.FillRoundedRectangle(&rrect(l, t, r, b, thick / 2.0), brush);
+            let fill = l + (r - l) * fraction.clamp(0.0, 1.0);
+            if fill - l >= thick {
+                brush.SetColor(&rgba(color, 1.0));
+                rt.FillRoundedRectangle(&rrect(l, t, fill, b, thick / 2.0), brush);
+            }
         }
     }
 

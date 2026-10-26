@@ -1,11 +1,12 @@
 //! History page: totals by hour, day, month or year. Clicking a bar or a row
 //! drills into it (year, then month, then day).
 
+use super::apps_ui;
 use super::charts::{self, Bar, TableRow};
 use super::theme;
 use super::{ui, App};
 use crate::format;
-use crate::history::{self, Row};
+use crate::history::{self, AppRow, Row};
 use chrono::{Datelike, Duration, NaiveDate};
 use eframe::egui::{self, vec2, Layout, RichText, Ui};
 use std::time::Instant;
@@ -18,11 +19,34 @@ pub enum Scale {
     All,
 }
 
+/// What the list under the chart shows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ListMode {
+    Apps,
+    Periods,
+}
+
 pub struct HistoryState {
     pub scale: Scale,
     pub anchor: NaiveDate,
     loaded: Option<Loaded>,
+    list: ListMode,
+    /// Day view: the hour picked on the chart; the app list shows only that hour.
+    hour: Option<u32>,
+    all_apps: bool,
+    apps: Option<LoadedApps>,
+    /// The period on screen, to reset the hour and "show all" when it changes.
+    period: Option<(Scale, NaiveDate)>,
 }
+
+struct LoadedApps {
+    key: (Scale, NaiveDate, Option<u32>),
+    at: Instant,
+    rows: Vec<AppRow>,
+}
+
+/// How many apps show before "Show all".
+const TOP_APPS: usize = 12;
 
 struct Loaded {
     key: (Scale, NaiveDate),
@@ -34,13 +58,112 @@ struct Loaded {
 
 impl HistoryState {
     pub fn new() -> Self {
-        Self { scale: Scale::Month, anchor: history::today(), loaded: None }
+        Self {
+            scale: Scale::Month,
+            anchor: history::today(),
+            loaded: None,
+            list: ListMode::Apps,
+            hour: None,
+            all_apps: false,
+            apps: None,
+            period: None,
+        }
     }
 
     /// Forces a reload (after an import or clearing history).
     pub fn invalidate(&mut self) {
         self.loaded = None;
+        self.apps = None;
     }
+}
+
+/// The last day of the period that starts at `start`.
+fn period_last_day(scale: Scale, start: NaiveDate) -> NaiveDate {
+    match scale {
+        Scale::Day => start,
+        Scale::Month | Scale::Year => shift(scale, start, 1).pred_opt().unwrap_or(start),
+        Scale::All => history::today(),
+    }
+}
+
+fn load_apps(c: &rusqlite::Connection, scale: Scale, start: NaiveDate, hour: Option<u32>) -> Vec<AppRow> {
+    if let (Scale::Day, Some(h)) = (scale, hour) {
+        let from = history::hour_ts(start, h);
+        return history::apps_in_hours(c, from, from + 3600);
+    }
+    let (from, to) = match scale {
+        Scale::All => ("0000-00-00".to_string(), "9999-99-99".to_string()),
+        _ => (history::day_key(start), history::day_key(period_last_day(scale, start))),
+    };
+    history::apps_between(c, &from, &to)
+}
+
+/// The app list for the period on screen.
+fn apps_body(app: &mut App, ui: &mut Ui, scale: Scale, anchor: NaiveDate) {
+    let p = app.pal;
+    let start = period_start(scale, anchor);
+    let hour = if scale == Scale::Day { app.hist.hour } else { None };
+    let key = (scale, start, hour);
+    let stale = app.hist.apps.as_ref().is_none_or(|l| l.key != key || l.at.elapsed().as_secs() >= 30);
+    if stale {
+        if let Some(db) = app.db() {
+            let rows = load_apps(db, scale, start, hour);
+            app.hist.apps = Some(LoadedApps { key, at: Instant::now(), rows });
+            app.first_app_day = app.db().and_then(history::first_app_day);
+        }
+    }
+    let list = app.hist.apps.as_ref().map(|l| l.rows.clone()).unwrap_or_default();
+    let live_state = app.snap.as_ref().filter(|s| s.is_fresh()).map(|s| s.apps_state);
+    let note = |ui: &mut Ui, text: &str| {
+        ui.add(egui::Label::new(RichText::new(text).font(theme::body(12.5)).color(p.faint)).wrap());
+    };
+
+    if list.is_empty() {
+        if apps_ui::status_card(app, ui, live_state) {
+            return;
+        }
+        let what = match scale {
+            Scale::Day => "day",
+            Scale::Month => "month",
+            Scale::Year => "year",
+            Scale::All => "time",
+        };
+        let msg = match app.first_app_day {
+            _ if hour.is_some() => "No per-app detail for this hour.".to_string(),
+            Some(f) if period_last_day(scale, start) < f => {
+                format!("Per-app counting started on {}, after this {what}.", f.format("%B %-d, %Y"))
+            }
+            None => "No app traffic yet. Apps appear here about a minute after they use the network.".to_string(),
+            _ => format!("No app traffic recorded for {}.", title(scale, anchor)),
+        };
+        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), egui::Sense::hover());
+        ui.painter().text(rect.left_center() + vec2(4.0, 0.0), egui::Align2::LEFT_CENTER, msg, theme::body(13.5), p.dim);
+        return;
+    }
+
+    let shown = if app.hist.all_apps { list.len() } else { list.len().min(TOP_APPS) };
+    let rows = apps_ui::rows(app, ui, &list[..shown]);
+    charts::table(ui, &p, "App", &rows, false);
+    if list.len() > TOP_APPS {
+        ui.add_space(6.0);
+        let label = if app.hist.all_apps { "Show fewer".to_string() } else { format!("Show all {} apps", list.len()) };
+        let link = ui.add(egui::Label::new(RichText::new(label).font(theme::body(13.0)).color(p.accent)).sense(egui::Sense::click()));
+        if link.clicked() {
+            app.hist.all_apps = !app.hist.all_apps;
+        }
+    }
+    ui.add_space(10.0);
+    if let Some(f) = app.first_app_day.filter(|f| *f > start && scale != Scale::Day) {
+        note(ui, &format!("Per-app counting started on {}. Traffic before that isn't split by app.", f.format("%B %-d, %Y")));
+    }
+    if list.iter().any(|r| r.key == crate::apps::OTHER) {
+        note(ui, "Other is traffic no single app accounts for, such as packet headers and other users' apps.");
+    }
+    if scale == Scale::Day && hour.is_none() {
+        note(ui, "Click an hour in the chart to see its apps.");
+    }
+    ui.add_space(6.0);
+    apps_ui::status_card(app, ui, live_state);
 }
 
 fn add_months(d: NaiveDate, n: i32) -> NaiveDate {
@@ -177,6 +300,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // Load (cached; refreshed every 30 s so today's numbers keep up).
     let key = (app.hist.scale, period_start(app.hist.scale, app.hist.anchor));
+    if app.hist.period != Some(key) {
+        app.hist.period = Some(key);
+        app.hist.hour = None;
+        app.hist.all_apps = false;
+    }
     let stale = app.hist.loaded.as_ref().is_none_or(|l| l.key != key || l.at.elapsed().as_secs() >= 30);
     if stale {
         if let Some(db) = app.db() {
@@ -287,9 +415,18 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             _ => format!("No traffic recorded for {}.", title(scale, anchor)),
         };
         empty_state(ui, &p, &msg);
-    } else if let Some(i) = charts::mirrored_bars(ui, &p, "history", &bars, 250.0, app.animating(), true) {
-        if let Some(d) = row_date(scale, anchor, i, &rows[i]).filter(|_| rows[i].total() > 0) {
-            drill(&mut app.hist, d);
+    } else {
+        let selected = if scale == Scale::Day { app.hist.hour.map(|h| h as usize) } else { None };
+        if let Some(i) = charts::mirrored_bars(ui, &p, "history", &bars, 250.0, app.animating(), true, selected) {
+            if scale == Scale::Day {
+                // An hour: show which apps used it (click again for the whole day).
+                if rows[i].total() > 0 || app.hist.hour == Some(i as u32) {
+                    app.hist.hour = if app.hist.hour == Some(i as u32) { None } else { Some(i as u32) };
+                    app.hist.list = ListMode::Apps;
+                }
+            } else if let Some(d) = row_date(scale, anchor, i, &rows[i]).filter(|_| rows[i].total() > 0) {
+                drill(&mut app.hist, d);
+            }
         }
     }
 
@@ -297,8 +434,29 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         return;
     }
 
-    // Table, plus the calendar in month view.
+    // Under the chart: which apps used the data, or the list of periods.
     ui.add_space(22.0);
+    let periods = match scale {
+        Scale::Day => "Hours",
+        Scale::Month => "Days",
+        Scale::Year => "Months",
+        Scale::All => "Years",
+    };
+    let mut mode = app.hist.list;
+    ui.horizontal(|ui| {
+        ui::segmented(ui, &p, "list", &mut mode, &[(ListMode::Apps, "Apps"), (ListMode::Periods, periods)]);
+        if let (ListMode::Apps, Scale::Day, Some(h)) = (mode, scale, app.hist.hour) {
+            ui.add_space(14.0);
+            ui.label(RichText::new(format!("{:02}:00 to {:02}:00", h, (h + 1) % 24)).font(theme::body(14.0)).color(p.text));
+            ui.add_space(6.0);
+            let link = ui.add(egui::Label::new(RichText::new("Show whole day").font(theme::body(13.0)).color(p.accent)).sense(egui::Sense::click()));
+            if link.clicked() {
+                app.hist.hour = None;
+            }
+        }
+    });
+    app.hist.list = mode;
+    ui.add_space(10.0);
     let table_rows: Vec<(usize, TableRow)> = rows
         .iter()
         .enumerate()
@@ -309,7 +467,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 Scale::Month => row_date(scale, anchor, i, r).map(|d| d.format("%a, %b %-d").to_string()).unwrap_or_default(),
                 _ => label_for(i, r),
             };
-            (i, TableRow { label, rx: r.rx, tx: r.tx })
+            (i, TableRow { label, rx: r.rx, tx: r.tx, ..Default::default() })
         })
         .collect();
     let first_col = match scale {
@@ -318,19 +476,21 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         Scale::Year => "Month",
         Scale::All => "Year",
     };
-    let only_rows: Vec<TableRow> = table_rows.iter().map(|(_, r)| TableRow { label: r.label.clone(), rx: r.rx, tx: r.tx }).collect();
+    let only_rows: Vec<TableRow> = table_rows.iter().map(|(_, r)| r.clone()).collect();
     let mut clicked_row = None;
     let mut clicked_day = None;
     let wide = ui.available_width() >= 760.0;
+    let mut list = |app: &mut App, ui: &mut Ui| match mode {
+        ListMode::Apps => apps_body(app, ui, scale, anchor),
+        ListMode::Periods => clicked_row = charts::table(ui, &p, first_col, &only_rows, scale != Scale::Day),
+    };
     if scale == Scale::Month && wide {
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let cal_w = 300.0;
             let table_w = ui.available_width() - cal_w - 32.0;
             let column = Layout::top_down(egui::Align::Min);
-            ui.allocate_ui_with_layout(vec2(table_w, 0.0), column, |ui| {
-                clicked_row = charts::table(ui, &p, first_col, &only_rows, true);
-            });
+            ui.allocate_ui_with_layout(vec2(table_w, 0.0), column, |ui| list(app, ui));
             ui.add_space(32.0);
             ui.allocate_ui_with_layout(vec2(cal_w, 0.0), column, |ui| {
                 clicked_day = charts::calendar(ui, &p, anchor.year(), anchor.month(), &rows, today);
@@ -343,7 +503,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             });
             ui.add_space(18.0);
         }
-        clicked_row = charts::table(ui, &p, first_col, &only_rows, scale != Scale::Day);
+        list(app, ui);
     }
     if let Some(k) = clicked_row {
         let (i, _) = &table_rows[k];

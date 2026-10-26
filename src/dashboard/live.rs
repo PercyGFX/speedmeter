@@ -1,5 +1,6 @@
 //! Live page: the two readouts, the mirrored waveform, and today's totals.
 
+use super::apps_ui;
 use super::charts::{self, Bar, Wave};
 use super::theme::{self, Palette};
 use super::{ui, App};
@@ -59,6 +60,45 @@ fn totals_block(ui: &mut Ui, p: &Palette, title: &str, rx: u64, tx: u64) {
             RichText::new(format!("{} down, {} up", format::bytes(rx), format::bytes(tx)))
                 .font(theme::body(12.5))
                 .color(p.faint),
+        );
+    });
+}
+
+/// One data limit: how much is used, as a bar that turns amber at 80% and red at 100%.
+fn limit_block(ui: &mut Ui, p: &Palette, u: &crate::limits::Usage) {
+    let f = u.fraction() as f32;
+    let color = if f >= 1.0 {
+        p.extreme
+    } else if f >= 0.8 {
+        p.heavy
+    } else {
+        p.busy
+    };
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 4.0;
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format!("{} limit", u.period.name())).font(theme::body(13.0)).color(p.dim));
+            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                let pct = RichText::new(format!("{}%", u.percent())).font(theme::display(15.0));
+                ui.label(if f >= 0.8 { pct.color(color) } else { pct.color(p.text) });
+            });
+        });
+        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.0), Sense::hover());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 3, p.layer);
+        let fill = egui::Rect::from_min_size(rect.min, vec2(rect.width() * f.clamp(0.0, 1.0), rect.height()));
+        if fill.width() >= 3.0 {
+            painter.rect_filled(fill, 3, color);
+        }
+        ui.label(
+            RichText::new(format!(
+                "{} of {}, {}",
+                format::bytes(u.used),
+                crate::limits::limit_text(u.limit),
+                u.resets_text()
+            ))
+            .font(theme::body(12.5))
+            .color(p.faint),
         );
     });
 }
@@ -157,7 +197,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     };
     let empty = Vec::new();
     let samples = app.snap.as_ref().map(|s| &s.samples).unwrap_or(&empty);
-    let height = (ui.available_height() - 150.0).clamp(220.0, 440.0);
+    // Fill the first screen down to the totals; the app list starts below it.
+    let height = (ui.available_height() - 128.0).clamp(220.0, 440.0);
     charts::waveform(
         ui,
         &p,
@@ -189,8 +230,30 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 Bar { label: String::new(), title, rx: r.rx, tx: r.tx }
             })
             .collect();
-        charts::mirrored_bars(ui, &p, "last24", &bars, 64.0, false, false);
+        charts::mirrored_bars(ui, &p, "last24", &bars, 64.0, false, false, None);
     });
+
+    // Data limits, when any are set.
+    let usage = app.limit_usage();
+    if !usage.is_empty() {
+        ui.add_space(24.0);
+        let n = usage.len();
+        ui.columns(3, |cols| {
+            for (i, u) in usage.iter().enumerate() {
+                limit_block(&mut cols[i + 3 - n.min(3)], &p, u);
+            }
+        });
+    }
+
+    // Which apps are using the network.
+    ui.add_space(28.0);
+    ui.label(RichText::new("Apps using the network now").font(theme::strong(15.0)).color(p.text));
+    ui.add_space(6.0);
+    let live_state = app.snap.as_ref().filter(|s| s.is_fresh()).map(|s| s.apps_state);
+    if !apps_ui::status_card(app, ui, live_state) && running {
+        apps_ui::live_list(app, ui, 10);
+    }
+    ui.add_space(16.0);
 }
 
 fn notice_not_running(app: &mut App, ui: &mut Ui) {
