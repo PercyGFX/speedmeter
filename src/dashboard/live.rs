@@ -195,7 +195,7 @@ fn notice_not_running(app: &mut App, ui: &mut Ui) {
     let p = app.pal;
     egui::Frame::NONE
         .fill(p.layer)
-        .stroke(egui::Stroke::new(1.0, p.line))
+        .stroke(egui::Stroke::new(1.0_f32, p.line))
         .corner_radius(egui::CornerRadius::same(6))
         .inner_margin(egui::Margin::symmetric(18, 12))
         .show(ui, |ui| {

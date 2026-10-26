@@ -53,7 +53,7 @@ fn connection_list(app: &mut App, ui: &mut Ui) {
         let selected = same_choice(&app.cfg.connection, &conn);
         let frame = egui::Frame::NONE
             .fill(p.layer)
-            .stroke(egui::Stroke::new(1.0, if selected { p.faint } else { p.line }))
+            .stroke(egui::Stroke::new(1.0_f32, if selected { p.faint } else { p.line }))
             .corner_radius(egui::CornerRadius::same(6))
             .inner_margin(egui::Margin { left: 50, right: 18, top: 10, bottom: 10 })
             .show(ui, |ui| {

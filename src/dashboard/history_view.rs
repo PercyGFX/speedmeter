@@ -360,7 +360,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 fn empty_state(ui: &mut Ui, p: &theme::Palette, msg: &str) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 160.0), egui::Sense::hover());
     let painter = ui.painter();
-    painter.line_segment([rect.left_center(), rect.right_center()], egui::Stroke::new(1.0, p.line));
+    painter.line_segment([rect.left_center(), rect.right_center()], egui::Stroke::new(1.0_f32, p.line));
     let g = painter.layout(msg.to_string(), theme::body(14.0), p.dim, (rect.width() - 80.0).min(560.0));
     let r = egui::Align2::CENTER_CENTER.anchor_size(rect.center(), g.size()).expand2(vec2(14.0, 8.0));
     painter.rect_filled(r, egui::CornerRadius::same(6), p.content);

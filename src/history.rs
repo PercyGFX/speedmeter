@@ -6,7 +6,7 @@
 //! The monitor writes through a background thread so a slow disk never stalls the
 //! taskbar. The dashboard opens its own read connection (WAL mode allows both).
 
-use chrono::{Datelike, Local, NaiveDate, TimeZone, Timelike};
+use chrono::{Local, NaiveDate, TimeZone, Timelike};
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -274,10 +274,6 @@ pub fn recent_hours(c: &Connection, n: usize) -> Vec<Row> {
     out
 }
 
-pub fn oldest_minute(c: &Connection) -> Option<i64> {
-    c.query_row("SELECT MIN(ts) FROM minute", [], |r| r.get::<_, Option<i64>>(0)).ok().flatten()
-}
-
 pub fn clear(c: &Connection) -> rusqlite::Result<()> {
     c.execute_batch("DELETE FROM minute; DELETE FROM day;")?;
     let _ = c.execute_batch("VACUUM;");
@@ -296,10 +292,6 @@ pub fn days_in_month(year: i32, month: u32) -> u32 {
         NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap()
     };
     (next - first).num_days() as u32
-}
-
-pub fn same_month(a: NaiveDate, b: NaiveDate) -> bool {
-    a.year() == b.year() && a.month() == b.month()
 }
 
 #[cfg(test)]

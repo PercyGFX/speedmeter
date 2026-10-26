@@ -101,10 +101,6 @@ impl Palette {
         }
     }
 
-    pub fn heat(&self, c: [u8; 3]) -> Color32 {
-        rgb(c)
-    }
-
     /// A darker (or, on light, paler) version of a heat color, used for upload bars
     /// so the two directions read apart while sharing the scale.
     pub fn quiet(&self, c: Color32) -> Color32 {
@@ -179,8 +175,8 @@ fn visuals(p: &Palette) -> Visuals {
     v.code_bg_color = p.layer;
     v.hyperlink_color = p.accent;
     v.selection.bg_fill = p.accent;
-    v.selection.stroke = Stroke::new(1.0, p.on_accent);
-    v.window_stroke = Stroke::new(1.0, p.line);
+    v.selection.stroke = Stroke::new(1.0_f32, p.on_accent);
+    v.window_stroke = Stroke::new(1.0_f32, p.line);
     v.window_corner_radius = CornerRadius::same(8);
     v.menu_corner_radius = CornerRadius::same(8);
     v.slider_trailing_fill = true;
@@ -188,27 +184,27 @@ fn visuals(p: &Palette) -> Visuals {
     let w = &mut v.widgets;
     w.noninteractive.bg_fill = p.layer;
     w.noninteractive.weak_bg_fill = p.layer;
-    w.noninteractive.bg_stroke = Stroke::new(1.0, p.line);
-    w.noninteractive.fg_stroke = Stroke::new(1.0, p.text);
+    w.noninteractive.bg_stroke = Stroke::new(1.0_f32, p.line);
+    w.noninteractive.fg_stroke = Stroke::new(1.0_f32, p.text);
     w.noninteractive.corner_radius = r;
 
     w.inactive.bg_fill = p.selected;
     w.inactive.weak_bg_fill = p.selected;
-    w.inactive.bg_stroke = Stroke::new(1.0, p.line);
-    w.inactive.fg_stroke = Stroke::new(1.0, p.text);
+    w.inactive.bg_stroke = Stroke::new(1.0_f32, p.line);
+    w.inactive.fg_stroke = Stroke::new(1.0_f32, p.text);
     w.inactive.corner_radius = r;
 
     w.hovered.bg_fill = blend(p.selected, p.text, 0.06);
     w.hovered.weak_bg_fill = blend(p.selected, p.text, 0.06);
-    w.hovered.bg_stroke = Stroke::new(1.0, p.faint);
-    w.hovered.fg_stroke = Stroke::new(1.0, p.text);
+    w.hovered.bg_stroke = Stroke::new(1.0_f32, p.faint);
+    w.hovered.fg_stroke = Stroke::new(1.0_f32, p.text);
     w.hovered.corner_radius = r;
     w.hovered.expansion = 0.0;
 
     w.active.bg_fill = p.selected;
     w.active.weak_bg_fill = p.selected;
-    w.active.bg_stroke = Stroke::new(1.0, p.accent);
-    w.active.fg_stroke = Stroke::new(1.0, p.text);
+    w.active.bg_stroke = Stroke::new(1.0_f32, p.accent);
+    w.active.fg_stroke = Stroke::new(1.0_f32, p.text);
     w.active.corner_radius = r;
     w.active.expansion = 0.0;
 

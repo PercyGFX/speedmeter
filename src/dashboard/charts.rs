@@ -111,8 +111,8 @@ pub fn waveform(ui: &mut Ui, p: &Palette, w: &Wave, height: f32) {
     let px_per_byte = down_h as f64 / top;
     let bottom_val = up_h as f64 / px_per_byte;
 
-    painter.line_segment([plot.left_top(), plot.right_top()], Stroke::new(1.0, p.line));
-    painter.line_segment([plot.left_bottom(), plot.right_bottom()], Stroke::new(1.0, p.line));
+    painter.line_segment([plot.left_top(), plot.right_top()], Stroke::new(1.0_f32, p.line));
+    painter.line_segment([plot.left_bottom(), plot.right_bottom()], Stroke::new(1.0_f32, p.line));
 
     let x_of = |t: f64| plot.right() - ((w.now_ms - t) * px_per_ms) as f32;
     let pointer = resp.hover_pos();
@@ -152,7 +152,7 @@ pub fn waveform(ui: &mut Ui, p: &Palette, w: &Wave, height: f32) {
             painter.rect_filled(Rect::from_min_max(pos2(bx0, wire_y + 1.5), pos2(bx1, wire_y + 1.5 + hu)), CornerRadius::same(radius), uc);
         }
     }
-    painter.line_segment([pos2(plot.left(), wire_y), pos2(plot.right(), wire_y)], Stroke::new(1.0, p.faint));
+    painter.line_segment([pos2(plot.left(), wire_y), pos2(plot.right(), wire_y)], Stroke::new(1.0_f32, p.faint));
 
     scale_label(&painter, p, pos2(plot.left() + 2.0, plot.top() + 4.0), Align2::LEFT_TOP, format!("↓ {}", format::speed_short(top, w.unit)));
     scale_label(&painter, p, pos2(plot.left() + 2.0, plot.bottom() - 4.0), Align2::LEFT_BOTTOM, format!("↑ {}", format::speed_short(bottom_val, w.unit)));
@@ -214,8 +214,8 @@ pub fn mirrored_bars(ui: &mut Ui, p: &Palette, id: &str, bars: &[Bar], height: f
     let bottom_val = up_h as f64 / ppb;
 
     if axis {
-        painter.line_segment([plot.left_top(), plot.right_top()], Stroke::new(1.0, p.line));
-        painter.line_segment([plot.left_bottom(), plot.right_bottom()], Stroke::new(1.0, p.line));
+        painter.line_segment([plot.left_top(), plot.right_top()], Stroke::new(1.0_f32, p.line));
+        painter.line_segment([plot.left_bottom(), plot.right_bottom()], Stroke::new(1.0_f32, p.line));
     }
 
     let hover_i = resp
@@ -263,7 +263,7 @@ pub fn mirrored_bars(ui: &mut Ui, p: &Palette, id: &str, bars: &[Bar], height: f
             );
         }
     }
-    painter.line_segment([pos2(plot.left(), wire_y), pos2(plot.right(), wire_y)], Stroke::new(1.0, p.faint));
+    painter.line_segment([pos2(plot.left(), wire_y), pos2(plot.right(), wire_y)], Stroke::new(1.0_f32, p.faint));
 
     if axis {
         let step = ((34.0 / slot).ceil() as usize).max(1);
@@ -334,11 +334,11 @@ pub fn calendar(ui: &mut Ui, p: &Palette, year: i32, month: u32, rows: &[Row], t
         };
         painter.rect_filled(r, CornerRadius::same(5), fill);
         if date == today {
-            painter.rect_stroke(r, CornerRadius::same(5), Stroke::new(1.5, p.text), StrokeKind::Inside);
+            painter.rect_stroke(r, CornerRadius::same(5), Stroke::new(1.5_f32, p.text), StrokeKind::Inside);
         }
         painter.text(r.left_top() + vec2(6.0, 4.0), Align2::LEFT_TOP, d.to_string(), theme::display(12.0), num);
         if pointer.is_some_and(|pp| r.contains(pp)) {
-            painter.rect_stroke(r, CornerRadius::same(5), Stroke::new(1.0, p.dim), StrokeKind::Outside);
+            painter.rect_stroke(r, CornerRadius::same(5), Stroke::new(1.0_f32, p.dim), StrokeKind::Outside);
             hovered = Some((date, data));
             if resp.clicked() && data.is_some() {
                 clicked = Some(date);
@@ -389,7 +389,7 @@ pub fn table(ui: &mut Ui, p: &Palette, first_col: &str, rows: &[TableRow], click
         if resp.hovered() {
             painter.rect_filled(rect, CornerRadius::same(5), p.hover);
         }
-        painter.line_segment([rect.left_top(), rect.right_top()], Stroke::new(1.0, p.line));
+        painter.line_segment([rect.left_top(), rect.right_top()], Stroke::new(1.0_f32, p.line));
         let y = rect.center().y;
         painter.text(pos2(rect.left() + 4.0, y), Align2::LEFT_CENTER, &r.label, theme::body(13.5), p.text);
         let values = [r.rx, r.tx, r.rx + r.tx];

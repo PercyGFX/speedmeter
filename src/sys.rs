@@ -226,6 +226,17 @@ pub fn open_in_explorer(path: &std::path::Path) {
     let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
 }
 
+/// Windows' "Animation effects" setting (Accessibility > Visual effects). When it is
+/// off, SpeedMeter keeps everything still regardless of its own setting.
+pub fn windows_animations_enabled() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS};
+    let mut on = BOOL(1);
+    unsafe {
+        let _ = SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, Some(&mut on as *mut _ as *mut _), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
+    }
+    on.as_bool()
+}
+
 /// Appends a line to the log file. Used for panics and unexpected failures, since a
 /// windowed app has no console.
 pub fn log(msg: &str) {

@@ -52,8 +52,6 @@ pub struct Scene<'a> {
     /// Hover highlight strength, 0 to 1.
     pub hover: f32,
     pub scale: f32,
-    /// Fixed pixel height (the taskbar's), or None to size to content.
-    pub height: Option<i32>,
 }
 
 struct Surface {

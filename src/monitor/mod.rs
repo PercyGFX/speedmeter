@@ -112,7 +112,6 @@ struct Totals {
 struct Frame {
     floating: bool,
     scale: f32,
-    height: Option<i32>,
     w: i32,
     h: i32,
 }
@@ -130,19 +129,6 @@ fn demo_reading(tick: u64) -> Reading {
     };
     let up = down * 0.06 * (1.0 + 0.3 * (t * 0.9).cos());
     Reading { down, up, rx: down as u64, tx: up as u64 }
-}
-
-fn windows_animations_enabled() -> bool {
-    let mut on = windows::Win32::Foundation::BOOL(1);
-    unsafe {
-        let _ = SystemParametersInfoW(
-            SPI_GETCLIENTAREAANIMATION,
-            0,
-            Some(&mut on as *mut _ as *mut _),
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-        );
-    }
-    on.as_bool()
 }
 
 struct Monitor {
@@ -259,7 +245,7 @@ impl Monitor {
             frame: None,
             anim_running: false,
             last_frame: std::time::Instant::now(),
-            motion_ok: windows_animations_enabled(),
+            motion_ok: sys::windows_animations_enabled(),
             demo: std::env::var_os("SPEEDMETER_DEMO").is_some(),
             last: Reading::default(),
             bucket: new_bucket(now),
@@ -362,7 +348,7 @@ impl Monitor {
 
         if self.ticks % 5 == 0 {
             self.dark = sys::taskbar_is_dark();
-            self.motion_ok = windows_animations_enabled();
+            self.motion_ok = sys::windows_animations_enabled();
         }
         if self.ticks % (6 * 3600) == 0 {
             let _ = self.writer.send(WriteMsg::Prune { keep_days: self.cfg.keep_minutes_days });
@@ -504,7 +490,7 @@ impl Monitor {
         }
         widget.set_tooltip(&tip);
         widget.set_dark(sys::apps_are_dark());
-        self.frame = Some(Frame { floating, scale, height, w, h });
+        self.frame = Some(Frame { floating, scale, w, h });
     }
 
     /// Draws the current animation state into the widget (no layout work).
@@ -523,7 +509,6 @@ impl Monitor {
             floating: f.floating,
             hover: self.hover_t,
             scale: f.scale,
-            height: f.height,
         };
         match renderer.draw(&scene, f.w, f.h) {
             Ok(dc) => {
@@ -872,6 +857,10 @@ pub fn run(open_dashboard: bool) {
         sys::set_autostart(cfg.start_with_windows);
 
         STATE.with(|s| *s.borrow_mut() = Some(Monitor::new(hwnd, cfg)));
+        let main = hwnd.0 as isize;
+        crate::update::spawn_auto_updater(move || {
+            let _ = PostMessageW(HWND(main as *mut _), WM_APP_QUIT, WPARAM(0), LPARAM(0));
+        });
         SetTimer(hwnd, TIMER_TICK, 1000, None);
         with(|m| m.tick());
 

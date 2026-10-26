@@ -75,12 +75,6 @@ pub fn intensity(bytes_per_sec: f64, h: &Heat) -> f32 {
     ((bytes_per_sec / h.busy).ln() / (h.extreme / h.busy).ln()).clamp(0.0, 1.0) as f32
 }
 
-fn mix(a: Rgb, b: Rgb, t: f64) -> Rgb {
-    let t = t.clamp(0.0, 1.0);
-    let m = |x: u8, y: u8| (x as f64 + (y as f64 - x as f64) * t).round() as u8;
-    [m(a[0], b[0]), m(a[1], b[1]), m(a[2], b[2])]
-}
-
 /// Chart color for a speed: one clean color per tier. (Blending blue into amber
 /// passes through a muddy olive, so tiers stay discrete.)
 pub fn speed_color(bytes_per_sec: f64, h: &Heat, dark: bool) -> Rgb {
