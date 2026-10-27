@@ -22,6 +22,7 @@ AppName=SpeedMeter
 AppVersion={#AppVersion}
 AppVerName=SpeedMeter {#AppVersion}
 AppPublisher=PercyGFX
+AppCopyright=Copyright (c) 2026 PercyGFX. MIT License.
 AppPublisherURL=https://github.com/PercyGFX/speedmeter
 AppSupportURL=https://github.com/PercyGFX/speedmeter/issues
 AppUpdatesURL=https://github.com/PercyGFX/speedmeter/releases
@@ -55,6 +56,7 @@ Name: "perapp"; Description: "Count data per app (asks for administrator approva
 [Files]
 Source: "..\target\release\speedmeter.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\target\release\speedmeter-service.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\SpeedMeter"; Filename: "{app}\speedmeter.exe"; Parameters: "--open"

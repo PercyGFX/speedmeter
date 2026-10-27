@@ -2,6 +2,17 @@
 
 What's new in each version of SpeedMeter. The newest version is at the top.
 
+## [0.2.2] - 2026-10-27
+
+### Changed
+
+- **A calmer live app list.** "Apps using the network now" lists an app once it has used the network for about 3 seconds, and lets it go after 4 quiet seconds, so one-off blips no longer flash in and out. History still counts every byte.
+
+### New
+
+- **About.** Settings > About shows who made SpeedMeter and its license, with links to the project, the license and this changelog.
+- SpeedMeter is now released under the [MIT License](https://github.com/PercyGFX/speedmeter/blob/main/LICENSE).
+
 ## [0.2.1] - 2026-10-27
 
 ### Fixed
@@ -45,6 +56,7 @@ First release.
 - Automatic network choice that follows Ethernet, Wi-Fi and VPNs.
 - Installer without administrator rights, start with Windows, and automatic updates from GitHub Releases.
 
+[0.2.2]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.2.2
 [0.2.1]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.2.1
 [0.2.0]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.2.0
 [0.1.0]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.1.0

@@ -4,8 +4,8 @@
 1 24 "app.manifest"
 
 1 VERSIONINFO
-FILEVERSION 0,2,1,0
-PRODUCTVERSION 0,2,1,0
+FILEVERSION 0,2,2,0
+PRODUCTVERSION 0,2,2,0
 FILEOS 0x40004
 FILETYPE 0x1
 BEGIN
@@ -15,8 +15,10 @@ BEGIN
     BEGIN
       VALUE "FileDescription", "SpeedMeter"
       VALUE "ProductName", "SpeedMeter"
-      VALUE "FileVersion", "0.2.1"
-      VALUE "ProductVersion", "0.2.1"
+      VALUE "CompanyName", "PercyGFX"
+      VALUE "LegalCopyright", "Copyright (c) 2026 PercyGFX. MIT License."
+      VALUE "FileVersion", "0.2.2"
+      VALUE "ProductVersion", "0.2.2"
       VALUE "OriginalFilename", "speedmeter.exe"
     END
   END

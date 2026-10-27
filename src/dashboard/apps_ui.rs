@@ -45,16 +45,55 @@ pub fn rows(app: &mut App, ui: &Ui, list: &[AppRow]) -> Vec<TableRow> {
         .collect()
 }
 
-/// A few seconds of speeds per app, so the live list doesn't flicker with every
-/// one-second reading.
+/// Speeds per app over the last few seconds, for a live list that doesn't flicker:
+/// an app joins once it has used the network for a few seconds in a row, and
+/// leaves a few seconds after it goes quiet. One-off blips never show.
 #[derive(Default)]
 pub struct AppRates {
     last_t: i64,
-    /// Last few readings per app (download, upload), newest last.
-    recent: HashMap<String, Vec<(f32, f32)>>,
+    apps: HashMap<String, Track>,
 }
 
+#[derive(Default)]
+struct Track {
+    /// Last few readings (download, upload), newest last.
+    recent: Vec<(f32, f32)>,
+    /// When the current stretch of use began, and when it was last seen (ms).
+    since: Option<i64>,
+    last_seen: i64,
+    shown: bool,
+}
+
+/// Readings averaged for the speeds shown.
 const WINDOW: usize = 3;
+/// In use for this long before it's listed. Readings come once a second, so
+/// this means four readings in a row.
+const SHOW_AFTER_MS: i64 = 3_000;
+/// Pauses shorter than this don't end a stretch of use (readings arrive in bursts).
+const PAUSE_MS: i64 = 2_500;
+/// Listed apps leave after this long without traffic.
+const HIDE_AFTER_MS: i64 = 4_000;
+
+impl Track {
+    fn step(&mut self, t: i64, (down, up): (f32, f32)) {
+        self.recent.push((down, up));
+        if self.recent.len() > WINDOW {
+            self.recent.remove(0);
+        }
+        if down + up > 0.0 {
+            if self.since.is_none() || t - self.last_seen > PAUSE_MS {
+                self.since = Some(t);
+            }
+            self.last_seen = t;
+        }
+        let quiet = t - self.last_seen;
+        if self.shown {
+            self.shown = quiet <= HIDE_AFTER_MS;
+        } else {
+            self.shown = quiet <= PAUSE_MS && self.since.is_some_and(|s| self.last_seen - s >= SHOW_AFTER_MS);
+        }
+    }
+}
 
 impl AppRates {
     pub fn update(&mut self, snap: &Snapshot) {
@@ -63,38 +102,67 @@ impl AppRates {
             return;
         }
         self.last_t = t;
-        for (key, list) in self.recent.iter_mut() {
-            let (d, u) = snap.apps.iter().find(|a| &a.key == key).map_or((0.0, 0.0), |a| (a.down, a.up));
-            list.push((d, u));
-        }
         for a in &snap.apps {
-            self.recent.entry(a.key.clone()).or_insert_with(|| vec![(a.down, a.up)]);
+            self.apps.entry(a.key.clone()).or_default();
         }
-        for list in self.recent.values_mut() {
-            if list.len() > WINDOW + 3 {
-                list.remove(0);
-            }
+        for (key, track) in self.apps.iter_mut() {
+            let reading = snap.apps.iter().find(|a| &a.key == key).map_or((0.0, 0.0), |a| (a.down, a.up));
+            track.step(t, reading);
         }
-        // Forget apps that have been quiet for a few seconds.
-        self.recent.retain(|_, l| l.iter().rev().take(WINDOW + 2).any(|(d, u)| d + u > 0.0));
+        // Forget apps that have been quiet for a while.
+        self.apps.retain(|_, a| t - a.last_seen < 15_000);
     }
 
-    /// (key, download, upload) averaged over the last few seconds, busiest first.
+    /// (key, download, upload) of the listed apps, averaged over the last few
+    /// seconds, busiest first.
     pub fn current(&self) -> Vec<(String, f64, f64)> {
         let mut out: Vec<(String, f64, f64)> = self
-            .recent
+            .apps
             .iter()
-            .map(|(k, l)| {
-                let tail = &l[l.len().saturating_sub(WINDOW)..];
-                let n = tail.len().max(1) as f64;
-                let d = tail.iter().map(|x| x.0 as f64).sum::<f64>() / n;
-                let u = tail.iter().map(|x| x.1 as f64).sum::<f64>() / n;
+            .filter(|(_, a)| a.shown)
+            .map(|(k, a)| {
+                let n = a.recent.len().max(1) as f64;
+                let d = a.recent.iter().map(|x| x.0 as f64).sum::<f64>() / n;
+                let u = a.recent.iter().map(|x| x.1 as f64).sum::<f64>() / n;
                 (k.clone(), d, u)
             })
-            .filter(|(_, d, u)| d + u > 0.0)
             .collect();
-        out.sort_by(|a, b| (b.1 + b.2).total_cmp(&(a.1 + a.2)));
+        out.sort_by(|a, b| (b.1 + b.2).total_cmp(&(a.1 + a.2)).then_with(|| a.0.cmp(&b.0)));
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(readings: &[f32]) -> Vec<bool> {
+        let mut t = Track::default();
+        readings.iter().enumerate().map(|(i, r)| {
+            t.step(i as i64 * 1000, (*r, 0.0));
+            t.shown
+        }).collect()
+    }
+
+    #[test]
+    fn blips_never_show() {
+        assert!(run(&[5.0, 0.0, 0.0, 0.0, 0.0, 0.0]).iter().all(|s| !s));
+        assert!(run(&[5.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0]).iter().all(|s| !s));
+    }
+
+    #[test]
+    fn steady_use_shows_after_three_seconds() {
+        // Shown at the fourth reading in a row (0, 1, 2, 3 s).
+        assert_eq!(run(&[5.0, 5.0, 5.0, 5.0, 5.0]), [false, false, false, true, true]);
+        // Bursty readings with short gaps still count as one stretch: listed once
+        // the stretch spans three seconds (readings at 0, 2 and 4 s).
+        assert_eq!(run(&[5.0, 0.0, 5.0, 0.0, 5.0]), [false, false, false, false, true]);
+    }
+
+    #[test]
+    fn leaves_after_four_quiet_seconds() {
+        let shown = run(&[5.0, 5.0, 5.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(&shown[3..], [true, true, true, true, true, false]);
     }
 }
 

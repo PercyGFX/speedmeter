@@ -34,6 +34,7 @@
 - [Uninstall](#uninstall)
 - [Troubleshooting](#troubleshooting)
 - [For developers](#for-developers)
+- [License](#license)
 
 ## Features
 
@@ -198,6 +199,10 @@ A newer per-app counter is never installed silently: Settings offers **Update**,
 - [Building SpeedMeter](docs/building.md): requirements, build and run, flags, environment variables, project layout, releasing.
 - [How it works](docs/how-it-works.md): the meter, the window, history, data limits, and the per-app counter and its security design.
 - [Settings reference](docs/settings.md): every key in `config.json`.
+
+## License
+
+SpeedMeter is made by PercyGFX and released under the [MIT License](LICENSE): you can use, change and share it freely, as long as the copyright notice stays with it.
 
 ## Credits
 

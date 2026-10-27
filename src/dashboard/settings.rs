@@ -432,14 +432,32 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
 
     ui::section(ui, &p, "About");
-    let running = crate::monitor::is_running();
     let version = format!("SpeedMeter {}", env!("CARGO_PKG_VERSION"));
+    let credit = format!(
+        "Made by {}. Free and open source under the {} License.",
+        env!("CARGO_PKG_AUTHORS"),
+        env!("CARGO_PKG_LICENSE")
+    );
+    let repo = format!("https://github.com/{}", crate::update::REPO);
+    ui::setting_row(ui, &p, &version, Some(&credit), |ui| {
+        // The row lays out right to left: GitHub ends up rightmost.
+        if ui::button(ui, &p, "GitHub", false).clicked() {
+            crate::sys::open_url(&repo);
+        }
+        if ui::button(ui, &p, "License", false).clicked() {
+            crate::sys::open_url(&format!("{repo}/blob/main/LICENSE"));
+        }
+        if ui::button(ui, &p, "What's new", false).clicked() {
+            crate::sys::open_url(&format!("{repo}/blob/main/CHANGELOG.md"));
+        }
+    });
+    let running = crate::monitor::is_running();
     let desc = if running {
-        "Stopping closes the taskbar meter and pauses recording until you start it again."
+        "Running. Stopping closes the taskbar meter and pauses recording until you start it again."
     } else {
-        "The taskbar meter isn't running."
+        "Not running, so nothing is being recorded."
     };
-    ui::setting_row(ui, &p, &version, Some(desc), |ui| {
+    ui::setting_row(ui, &p, "Taskbar meter", Some(desc), |ui| {
         if running {
             if ui::button(ui, &p, "Stop SpeedMeter", false).clicked() {
                 crate::monitor::request_quit();

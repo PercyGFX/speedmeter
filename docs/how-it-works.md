@@ -74,6 +74,8 @@ Twice a second it rewrites those totals into a global file mapping. Remote addre
 
 Each process becomes an app: its exe path, the group of services in a shared `svchost.exe` (named with `GetServiceDisplayNameW`), or System. A minute's worth goes to `app_hour` and `app_day` next to the `minute` row. Whatever the meter measured beyond what apps account for (packet headers, other users, timing) is stored as Other, so the apps always add up to the minute's total.
 
+The meter also hands each second's busiest apps to the window. Its live list waits until an app's traffic spans about 3 seconds (pauses under 2.5 seconds don't break the stretch) and drops it after 4 quiet seconds, so one-off blips don't flash by. That's only the live list; the history counts everything.
+
 **Names and icons.** An app is named from its exe's version info ("Firefox") when it first appears, falling back to the file name. The window draws icons through the shell (`IShellItemImageFactory`), the same ones Explorer shows; Microsoft Store apps use their package logo.
 
 ### Security design of the counter

@@ -227,6 +227,18 @@ pub fn bring_to_front(hwnd: HWND) {
     }
 }
 
+/// Opens a web page in the default browser.
+pub fn open_url(url: &str) {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    if !url.starts_with("https://") {
+        return;
+    }
+    unsafe {
+        ShellExecuteW(HWND::default(), w!("open"), &windows::core::HSTRING::from(url), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
+    }
+}
+
 pub fn open_in_explorer(path: &std::path::Path) {
     let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
 }

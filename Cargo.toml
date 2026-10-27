@@ -1,8 +1,11 @@
 [package]
 name = "speedmeter"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Network speed monitor for the Windows 11 taskbar, with traffic history"
+authors = ["PercyGFX"]
+license = "MIT"
+repository = "https://github.com/PercyGFX/speedmeter"
 build = "build.rs"
 
 [[bin]]
