@@ -37,7 +37,7 @@ fn luminance(c: Color32) -> f32 {
 fn scale_label(painter: &egui::Painter, p: &Palette, pos: Pos2, anchor: Align2, text: String) {
     let g = painter.layout_no_wrap(text, theme::display(12.0), p.faint);
     let r = anchor.anchor_size(pos, g.size()).expand2(vec2(4.0, 1.0));
-    painter.rect_filled(r, CornerRadius::same(3), p.content.gamma_multiply(0.85));
+    painter.rect_filled(r, CornerRadius::same(3), p.content);
     painter.galley(r.min + vec2(4.0, 1.0), g, p.faint);
 }
 
@@ -328,6 +328,7 @@ pub fn calendar(ui: &mut Ui, p: &Palette, year: i32, month: u32, rows: &[Row], t
         .filter_map(|r| r.key.get(8..10).and_then(|d| d.parse().ok()).map(|d: u32| (d, r)))
         .collect();
     let max = rows.iter().map(|r| r.total()).max().unwrap_or(0).max(1) as f64;
+    let quietest = rows.iter().map(|r| r.total()).filter(|t| *t > 0).min().unwrap_or(0) as f64;
     let pointer = resp.hover_pos();
     let mut hovered: Option<(NaiveDate, Option<&Row>)> = None;
     let mut clicked = None;
@@ -338,20 +339,25 @@ pub fn calendar(ui: &mut Ui, p: &Palette, year: i32, month: u32, rows: &[Row], t
         let r = Rect::from_min_size(pos2(rect.left() + col * (cell + gap), rect.top() + header_h + row * (cell + gap)), vec2(cell, cell));
         let date = NaiveDate::from_ymd_opt(year, month, d)?;
         let data = by_day.get(&d).copied().filter(|r| r.total() > 0);
+        // A blue that deepens from the quietest day to the busiest, so the month
+        // reads calmly, with the busiest days in red like their bars in the chart.
+        // The curve keeps ordinary days apart when one huge day stretches the range.
         let (fill, num) = match data {
             Some(rw) => {
-                let c = theme::rgb(heat::share_color(rw.total() as f64 / max, p.dark));
+                let share = rw.total() as f64 / max;
+                let rel = if max > quietest { ((rw.total() as f64 - quietest) / (max - quietest)).clamp(0.0, 1.0) as f32 } else { 1.0 };
+                let c = if share >= 0.8 { p.extreme } else { theme::blend(p.layer, p.fill(), 0.2 + 0.7 * rel.powf(0.6)) };
                 (c, if luminance(c) > 0.55 { Color32::from_rgb(0x1B, 0x1B, 0x1B) } else { Color32::from_rgb(0xF3, 0xF3, 0xF3) })
             }
-            None => (p.layer, if date > today { p.faint.gamma_multiply(0.6) } else { p.faint }),
+            None => (p.tint(p.content, 0.035), if date > today { theme::blend(p.faint, p.content, 0.45) } else { p.faint }),
         };
-        painter.rect_filled(r, CornerRadius::same(5), fill);
+        painter.rect_filled(r, CornerRadius::same(7), fill);
         if date == today {
-            painter.rect_stroke(r, CornerRadius::same(5), Stroke::new(1.5_f32, p.text), StrokeKind::Inside);
+            painter.rect_stroke(r, CornerRadius::same(7), Stroke::new(1.5_f32, p.text), StrokeKind::Inside);
         }
         painter.text(r.left_top() + vec2(6.0, 4.0), Align2::LEFT_TOP, d.to_string(), theme::display(12.0), num);
         if pointer.is_some_and(|pp| r.contains(pp)) {
-            painter.rect_stroke(r, CornerRadius::same(5), Stroke::new(1.0_f32, p.dim), StrokeKind::Outside);
+            painter.rect_stroke(r, CornerRadius::same(7), Stroke::new(1.0_f32, p.dim), StrokeKind::Outside);
             hovered = Some((date, data));
             if resp.clicked() && data.is_some() {
                 clicked = Some(date);

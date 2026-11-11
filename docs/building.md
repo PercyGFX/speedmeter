@@ -46,7 +46,7 @@ cargo test                     # unit tests
 
 | Variable | Effect |
 | --- | --- |
-| `SPEEDMETER_DEMO=1` | The meter shows a synthetic sweep from a trickle to 80 MB/s instead of real traffic, spread over a few apps in the live list, and records nothing. Handy for trying the colors and animations. |
+| `SPEEDMETER_DEMO=1` | The meter shows a synthetic sweep from a trickle to 80 MB/s instead of real traffic, spread over a few apps in the live list, and records nothing. Handy for trying the colors and animations. Set it for the window too, so it doesn't ask about the real per-app counter. |
 | `SPEEDMETER_DATA_DIR=<folder>` | Use another folder for `config.json`, `history.db` and `limits.json`. This copy runs on its own next to the normal one and never changes the sign-in entry. `python tools/make_demo_history.py <folder>` fills a folder with sample history, including per-app data. |
 
 The README screenshots are taken from such a demo copy: sample history in its own folder, with `SPEEDMETER_DEMO=1`.

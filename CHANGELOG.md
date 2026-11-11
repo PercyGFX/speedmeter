@@ -2,6 +2,25 @@
 
 What's new in each version of SpeedMeter. The newest version is at the top.
 
+## [0.3.0] - 2026-11-11
+
+### New look
+
+- **A new app icon:** a speed gauge that runs from blue to red.
+- **Cleaner controls.** Selectors such as Day, Month and Year show the chosen option as a solid blue pill; switches, buttons and the back and forward buttons in History are redrawn to match.
+- **A calmer calendar.** Days are shaded in one blue that deepens with use, and the busiest days stand out in red, like their bars in the chart.
+- **Update card.** When a new version is ready, the sidebar shows a card with its progress instead of a plain button.
+- Settings text now uses the full width of each row.
+
+### Fixed
+
+- In a small window, the History title no longer runs under the Day, Month and Year selector, and the Live legend no longer runs under the time-range selector.
+- In the light theme, the selected page in the sidebar and the empty part of the limit bars are visible again.
+- The content area's top-left corner is properly rounded.
+- The live app list keeps showing while the per-app counter waits for an update, and its order no longer reshuffles every second.
+- With a single data limit on, its bar on the Live page sits on the left instead of the far right.
+- Per-app counting: downloads over UDP (video calls, many games, QUIC) are now matched to the right network. This matters when you measure one network while another, such as a VPN, is also in use. SpeedMeter asks to update the counter once (one administrator approval).
+
 ## [0.2.2] - 2026-10-27
 
 ### Changed
@@ -56,6 +75,7 @@ First release.
 - Automatic network choice that follows Ethernet, Wi-Fi and VPNs.
 - Installer without administrator rights, start with Windows, and automatic updates from GitHub Releases.
 
+[0.3.0]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.3.0
 [0.2.2]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.2.2
 [0.2.1]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.2.1
 [0.2.0]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.2.0

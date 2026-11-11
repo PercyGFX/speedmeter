@@ -62,6 +62,9 @@ struct Track {
     since: Option<i64>,
     last_seen: i64,
     shown: bool,
+    /// Slow-moving average of the total speed, for an order that doesn't
+    /// reshuffle with every reading.
+    rank: f32,
 }
 
 /// Readings averaged for the speeds shown.
@@ -76,6 +79,7 @@ const HIDE_AFTER_MS: i64 = 4_000;
 
 impl Track {
     fn step(&mut self, t: i64, (down, up): (f32, f32)) {
+        self.rank += (down + up - self.rank) * 0.2;
         self.recent.push((down, up));
         if self.recent.len() > WINDOW {
             self.recent.remove(0);
@@ -114,21 +118,19 @@ impl AppRates {
     }
 
     /// (key, download, upload) of the listed apps, averaged over the last few
-    /// seconds, busiest first.
+    /// seconds, steadily busiest first.
     pub fn current(&self) -> Vec<(String, f64, f64)> {
-        let mut out: Vec<(String, f64, f64)> = self
-            .apps
-            .iter()
-            .filter(|(_, a)| a.shown)
+        let mut listed: Vec<(&String, &Track)> = self.apps.iter().filter(|(_, a)| a.shown).collect();
+        listed.sort_by(|a, b| b.1.rank.total_cmp(&a.1.rank).then_with(|| a.0.cmp(b.0)));
+        listed
+            .into_iter()
             .map(|(k, a)| {
                 let n = a.recent.len().max(1) as f64;
                 let d = a.recent.iter().map(|x| x.0 as f64).sum::<f64>() / n;
                 let u = a.recent.iter().map(|x| x.1 as f64).sum::<f64>() / n;
                 (k.clone(), d, u)
             })
-            .collect();
-        out.sort_by(|a, b| (b.1 + b.2).total_cmp(&(a.1 + a.2)).then_with(|| a.0.cmp(&b.0)));
-        out
+            .collect()
     }
 }
 
@@ -243,6 +245,10 @@ pub fn status_card(app: &mut App, ui: &mut Ui, live_state: Option<AppsState>) ->
     let p = app.pal;
     let busy = app.service.busy.load(Ordering::Acquire);
     let failed = app.service.failed.lock().ok().and_then(|f| f.clone());
+    // A demo's app list is made up, so the real counter's state has no say in it.
+    if std::env::var_os("SPEEDMETER_DEMO").is_some() {
+        return false;
+    }
     // The meter is receiving per-app numbers: nothing to fix, unless the counter
     // is an older version (which may count wrong, like 0.2.0's counted nothing).
     if live_state == Some(AppsState::Counting) && !busy && failed.is_none() && !app.service.needs_update() {

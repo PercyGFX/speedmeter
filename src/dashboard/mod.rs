@@ -505,20 +505,23 @@ impl App {
                 };
                 ui.add(egui::Label::new(RichText::new(text).font(theme::body(12.5)).color(p.dim)).truncate());
             });
-            ui.add_space(8.0);
+            ui.add_space(10.0);
             let state = self.update.lock().map(|s| s.clone()).unwrap_or_default();
+            // Fluent glyphs: download, and sync for the install step.
+            let (download, sync) = (icons.then_some('\u{E896}'), icons.then_some('\u{E895}'));
             match state {
                 UpdateState::Available(r) => {
-                    if ui::button(ui, &p, &format!("Update to {}", r.version), true).clicked() {
+                    if ui::update_card(ui, &p, download, "Update available", &format!("Install version {}", r.version), None, true) {
                         self.start_update(r);
                     }
                 }
-                UpdateState::Downloading { got, total, .. } => {
-                    let pct = if total > 0 { got * 100 / total } else { 0 };
-                    ui.label(RichText::new(format!("Downloading update, {pct}%")).font(theme::body(12.5)).color(p.dim));
+                UpdateState::Downloading { version, got, total } => {
+                    let done = if total > 0 { got as f32 / total as f32 } else { 0.0 };
+                    let detail = format!("Version {version}, {:.0}%", done * 100.0);
+                    ui::update_card(ui, &p, download, "Downloading update", &detail, Some(done), false);
                 }
-                UpdateState::Installing(_) => {
-                    ui.label(RichText::new("Installing update").font(theme::body(12.5)).color(p.dim));
+                UpdateState::Installing(v) => {
+                    ui::update_card(ui, &p, sync, "Installing update", &format!("Version {v}, reopens shortly"), None, false);
                 }
                 _ => {}
             }
@@ -570,6 +573,12 @@ pub fn update_rows(app: &mut App, ui: &mut egui::Ui) {
 }
 
 impl eframe::App for App {
+    /// What shows behind the panels: the rail color, so the content pane's rounded
+    /// corner curves into the rail instead of into eframe's default dark gray.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        self.pal.base.to_normalized_gamma_f32()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll(ctx);
         let now = Instant::now();
@@ -602,7 +611,7 @@ impl eframe::App for App {
                 egui::Frame::NONE
                     .fill(p.content)
                     .stroke(Stroke::new(1.0_f32, p.edge))
-                    .corner_radius(CornerRadius { nw: 8, ne: 0, sw: 0, se: 0 })
+                    .corner_radius(CornerRadius { nw: 10, ne: 0, sw: 0, se: 0 })
                     .inner_margin(Margin { left: 32, right: 10, top: 24, bottom: 12 }),
             )
             .show(ctx, |ui| {

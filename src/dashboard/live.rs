@@ -75,6 +75,8 @@ fn limit_block(ui: &mut Ui, p: &Palette, u: &crate::limits::Usage) {
         p.busy
     };
     ui.vertical(|ui| {
+        // Keep clear of the next column.
+        ui.set_width((ui.available_width() - 28.0).max(120.0));
         ui.spacing_mut().item_spacing.y = 4.0;
         ui.horizontal(|ui| {
             ui.label(RichText::new(format!("{} limit", u.period.name())).font(theme::body(13.0)).color(p.dim));
@@ -85,7 +87,7 @@ fn limit_block(ui: &mut Ui, p: &Palette, u: &crate::limits::Usage) {
         });
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.0), Sense::hover());
         let painter = ui.painter();
-        painter.rect_filled(rect, 3, p.layer);
+        painter.rect_filled(rect, 3, p.tint(p.content, 0.10));
         let fill = egui::Rect::from_min_size(rect.min, vec2(rect.width() * f.clamp(0.0, 1.0), rect.height()));
         if fill.width() >= 3.0 {
             painter.rect_filled(fill, 3, color);
@@ -179,15 +181,25 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     });
 
     ui.add_space(18.0);
-    ui.horizontal(|ui| {
-        legend(ui, &p, &app.cfg);
-        ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-            let mut range = app.live_range;
-            if ui::segmented(ui, &p, "range", &mut range, &RANGES) {
-                app.live_range = range;
-            }
+    // The legend and the range selector share a row when there's room for both.
+    let mut range = app.live_range;
+    if ui.available_width() >= 740.0 {
+        ui.horizontal(|ui| {
+            legend(ui, &p, &app.cfg);
+            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                ui::segmented(ui, &p, "range", &mut range, &RANGES);
+            });
         });
-    });
+    } else {
+        ui.horizontal(|ui| {
+            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                ui::segmented(ui, &p, "range", &mut range, &RANGES);
+            });
+        });
+        ui.add_space(6.0);
+        legend(ui, &p, &app.cfg);
+    }
+    app.live_range = range;
     ui.add_space(8.0);
 
     let now_ms = if animate {
@@ -237,10 +249,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let usage = app.limit_usage();
     if !usage.is_empty() {
         ui.add_space(24.0);
-        let n = usage.len();
         ui.columns(3, |cols| {
-            for (i, u) in usage.iter().enumerate() {
-                limit_block(&mut cols[i + 3 - n.min(3)], &p, u);
+            for (col, u) in cols.iter_mut().zip(&usage) {
+                limit_block(col, &p, u);
             }
         });
     }
@@ -250,7 +261,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     ui.label(RichText::new("Apps using the network now").font(theme::strong(15.0)).color(p.text));
     ui.add_space(6.0);
     let live_state = app.snap.as_ref().filter(|s| s.is_fresh()).map(|s| s.apps_state);
-    if !apps_ui::status_card(app, ui, live_state) && running {
+    // A card if something needs attention (off, stopped, an update), and the list
+    // whenever numbers are coming in.
+    let card = apps_ui::status_card(app, ui, live_state);
+    if running && (!card || live_state == Some(crate::shared::AppsState::Counting)) {
+        if card {
+            ui.add_space(10.0);
+        }
         apps_ui::live_list(app, ui, 10);
     }
     ui.add_space(16.0);

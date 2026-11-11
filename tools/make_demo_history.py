@@ -54,8 +54,7 @@ APPS = [
     (find(r"%APPDATA%\Telegram Desktop\Telegram.exe"), "Telegram Desktop", "Telegram.exe", 0.07, 0.03),
     (find(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe", r"C:\Program Files\Microsoft VS Code\Code.exe"),
      "Visual Studio Code", "Code.exe", 0.03, 0.03),
-    (find(r"%LOCALAPPDATA%\Microsoft\OneDrive\OneDrive.exe", r"C:\Program Files\Microsoft OneDrive\OneDrive.exe"),
-     "Microsoft OneDrive", "OneDrive.exe", 0.04, 0.28),
+    (find(r"C:\Program Files\Google\Chrome\Application\chrome.exe"), "Google Chrome", "chrome.exe", 0.05, 0.22),
     ("svc:bits,wuauserv", "Background Intelligent Transfer Service, Windows Update", "svchost.exe", 0.05, 0.01),
     ("svc:dosvc", "Delivery Optimization", "svchost.exe", 0.03, 0.04),
     ("system", "System", "", 0.01, 0.02),
@@ -113,17 +112,19 @@ def main() -> None:
         big = rng.uniform(25, 60) * GB if rng.random() < 0.06 else 0.0  # game or OS update day
         rx += big
         tx = rx * rng.uniform(0.05, 0.12)
+        full_rx, full_tx, full_big = rx, tx, big
         if d == today:
             frac = now.hour / 24 + 0.02
             rx, tx, big = rx * frac, tx * frac, big * frac
         peak = rng.uniform(4, 11) * MB if rx < 20 * GB else rng.uniform(38, 92) * MB
         day = d.strftime("%Y-%m-%d")
-        con.execute("INSERT INTO day VALUES(?,?,?,?,?)", (day, int(rx), int(tx), peak, peak * rng.uniform(0.05, 0.2)))
         with_apps = (today - d).days < APP_DAYS
-        if with_apps:
-            add_apps(con, "app_day", day, split(rng, rx, tx, big))
-        # Minute detail for the last 14 days, spread over the day's hours.
+        apps_day = None
+        # Minute detail for the last 14 days, spread over the day's hours. The day's
+        # total and its apps are then the sum of what the minutes and hours hold.
         if (today - d).days <= 14:
+            day_rx = day_tx = 0.0
+            apps_day = [[0.0, 0.0] for _ in APPS]
             for h in range(24):
                 hour_start = d + timedelta(hours=h)
                 if hour_start > now:
@@ -135,16 +136,26 @@ def main() -> None:
                     if ts > now.timestamp():
                         break
                     jitter = rng.uniform(0.2, 1.8)
-                    mrx = rx * share / 60 * jitter
-                    mtx = tx * share / 60 * jitter
+                    mrx = full_rx * share / 60 * jitter
+                    mtx = full_tx * share / 60 * jitter
                     hrx += mrx
                     htx += mtx
                     con.execute(
                         "INSERT INTO minute VALUES(?,?,?,?,?)",
                         (ts, int(mrx), int(mtx), mrx / 60 * rng.uniform(1.5, 4), mtx / 60 * rng.uniform(1.5, 4)),
                     )
+                day_rx += hrx
+                day_tx += htx
                 if with_apps:
-                    add_apps(con, "app_hour", int(hour_start.timestamp()), split(rng, hrx, htx, big * share))
+                    hour_apps = split(rng, hrx, htx, min(full_big * share, hrx * 0.8))
+                    add_apps(con, "app_hour", int(hour_start.timestamp()), hour_apps)
+                    for total, part in zip(apps_day, hour_apps):
+                        total[0] += part[0]
+                        total[1] += part[1]
+            rx, tx = day_rx, day_tx
+        con.execute("INSERT INTO day VALUES(?,?,?,?,?)", (day, int(rx), int(tx), peak, peak * rng.uniform(0.05, 0.2)))
+        if with_apps:
+            add_apps(con, "app_day", day, apps_day if apps_day is not None else split(rng, rx, tx, big))
         d += timedelta(days=1)
     con.commit()
     con.close()

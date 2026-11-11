@@ -70,15 +70,20 @@ struct Adapters {
 }
 
 impl Adapters {
-    fn luid(&mut self, local: Addr) -> u64 {
-        if let Some(l) = self.by_addr.get(&local) {
-            return *l;
+    /// The adapter one end of a connection belongs to. The kernel puts the local
+    /// address first for everything except received UDP, where it comes second,
+    /// so both ends are tried.
+    fn luid(&mut self, first: Addr, second: Option<Addr>) -> u64 {
+        let find = |map: &HashMap<Addr, u64>| map.get(&first).or_else(|| second.and_then(|a| map.get(&a))).copied();
+        if let Some(l) = find(&self.by_addr) {
+            return l;
         }
-        // A new address (an adapter came up). Look again, at most every two seconds.
-        if self.refreshed.is_none_or(|t| t.elapsed() > Duration::from_secs(2)) {
+        // Neither end is known: an adapter may have come up. Look again, at most
+        // every five seconds.
+        if self.refreshed.is_none_or(|t| t.elapsed() > Duration::from_secs(5)) {
             self.refresh();
         }
-        self.by_addr.get(&local).copied().unwrap_or(0)
+        find(&self.by_addr).unwrap_or(0)
     }
 
     fn refresh(&mut self) {
@@ -165,7 +170,7 @@ impl Counters {
         if local.is_loopback() || remote.is_some_and(|r| r.is_loopback()) {
             return;
         }
-        let luid = self.adapters.luid(local);
+        let luid = self.adapters.luid(local, remote);
         if !self.procs.contains_key(&pid) {
             self.learn_names(pid);
         }
@@ -355,5 +360,16 @@ mod tests {
         c.add(100, &[127, 0, 0, 1], &[127, 0, 0, 1], 999, true);
         let f = c.flows.values().next().unwrap();
         assert_eq!((c.flows.len(), f.rx, f.tx), (1, 500, 20));
+    }
+
+    #[test]
+    fn finds_the_adapter_from_either_end() {
+        let mut a = Adapters { by_addr: HashMap::new(), refreshed: Some(Instant::now()) };
+        let (local, remote) = (Addr::V4([10, 0, 0, 2]), Addr::V4([1, 1, 1, 1]));
+        a.by_addr.insert(local, 7);
+        assert_eq!(a.luid(local, Some(remote)), 7);
+        // Received UDP: the local address comes second.
+        assert_eq!(a.luid(remote, Some(local)), 7);
+        assert_eq!(a.luid(remote, None), 0);
     }
 }

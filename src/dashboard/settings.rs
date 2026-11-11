@@ -63,8 +63,8 @@ fn connection_list(app: &mut App, ui: &mut Ui) {
         let selected = same_choice(&app.cfg.connection, &conn);
         let frame = egui::Frame::NONE
             .fill(p.layer)
-            .stroke(egui::Stroke::new(1.0_f32, if selected { p.faint } else { p.line }))
-            .corner_radius(egui::CornerRadius::same(6))
+            .stroke(egui::Stroke::new(1.0_f32, if selected { theme::blend(p.line, p.fill(), 0.85) } else { p.line }))
+            .corner_radius(egui::CornerRadius::same(8))
             .inner_margin(egui::Margin { left: 50, right: 18, top: 10, bottom: 10 })
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -77,7 +77,7 @@ fn connection_list(app: &mut App, ui: &mut Ui) {
         if resp.clicked() && !selected {
             app.cfg.connection = conn;
         }
-        ui.add_space(3.0);
+        ui.add_space(4.0);
     }
     let toggle_label = if app.show_all_adapters {
         "Hide disconnected adapters".to_string()

@@ -63,7 +63,7 @@ Which process sent which bytes is only visible through Windows event tracing, an
 - `Microsoft-Windows-Kernel-Network`: bytes sent and received over TCP and UDP, with the process id and the local and remote addresses.
 - `Microsoft-Windows-Kernel-Process`: which exe each process id belongs to (start, stop, and a rundown of what's already running).
 
-Each network event type's layout is read once through TDH (Windows' own event decoder) and after that straight from the payload, because these events can arrive thousands of times a second. Only "data sent" and "data received" events count; connects, retransmits and copies would count bytes twice. Loopback traffic is skipped. The local address is matched to its adapter, and the service keeps a running total per process and adapter.
+Each network event type's layout is read once through TDH (Windows' own event decoder) and after that straight from the payload, because these events can arrive thousands of times a second. Only "data sent" and "data received" events count; connects, retransmits and copies would count bytes twice. Loopback traffic is skipped. The local address is matched to its adapter (the kernel lists it first, except for received UDP, where it comes second, so both ends are tried), and the service keeps a running total per process and adapter.
 
 Twice a second it rewrites those totals into a global file mapping. Remote addresses are used only to spot loopback and are never stored or published.
 

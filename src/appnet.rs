@@ -20,7 +20,8 @@ pub const MAPPING: PCWSTR = w!("Global\\SpeedMeter.AppNet.v1");
 pub const MAGIC: u32 = 0x5350_4E31; // "SPN1"
 /// Bump whenever the service changes, so the app offers to update an older one.
 /// 2: data events are recognized by opcode number (1 counted nothing).
-pub const SERVICE_VERSION: u32 = 2;
+/// 3: received UDP is matched to its adapter (its addresses come the other way round).
+pub const SERVICE_VERSION: u32 = 3;
 pub const SERVICE_NAME: PCWSTR = w!("SpeedMeterApps");
 pub const SERVICE_EXE: &str = "speedmeter-service.exe";
 pub const CAPACITY: usize = 1024;

@@ -64,22 +64,22 @@
 
 ## Screenshots
 
-<p align="center"><img src="docs/screenshots/live.png" alt="Live page: download at 78.3 MB/s in red, upload at 5.54 MB/s in blue, and a mirrored chart of the last minute"></p>
+<p align="center"><img src="docs/screenshots/live.png" alt="Live page: download at 76.3 MB/s in red, upload at 5.47 MB/s in blue, and a mirrored chart of the last minute"></p>
 <p align="center"><sub>Live: the last minute of traffic. Bars above the line are download, below are upload.</sub></p>
 
-<p align="center"><img src="docs/screenshots/live-apps.png" alt="Live page scrolled down: daily, weekly and monthly limit bars at 50%, 10% and 84%, then Firefox and Steam downloading at about 30 MB/s each, Microsoft Edge and Telegram"></p>
+<p align="center"><img src="docs/screenshots/live-apps.png" alt="Live page scrolled down: daily, weekly and monthly limit bars at 9%, 24% and 28%, then Firefox and Steam downloading at about 30 MB/s each, Microsoft Edge and Windows Update"></p>
 <p align="center"><sub>Live: your data limits, and the apps using the network right now.</sub></p>
 
-<p align="center"><img src="docs/screenshots/history.png" alt="History page for October: daily bars, totals, the apps that used the most data, and a calendar heatmap"></p>
+<p align="center"><img src="docs/screenshots/history.png" alt="History page for November: daily bars, totals, the apps that used the most data, and a calendar with the busiest days in red"></p>
 <p align="center"><sub>History: a month at a glance, with the apps that used it. Click a day to see it hour by hour.</sub></p>
 
-<p align="center"><img src="docs/screenshots/history-hour.png" alt="One day in History with the 21:00 bar picked, listing the apps that used data in that hour"></p>
+<p align="center"><img src="docs/screenshots/history-hour.png" alt="One day in History with the 12:00 bar picked, listing the apps that used data in that hour"></p>
 <p align="center"><sub>History: click an hour to see which apps used it.</sub></p>
 
 <p align="center"><img src="docs/screenshots/settings.png" alt="Settings page with taskbar meter options"></p>
 <p align="center"><sub>Settings: Windows 11 style, applied as you change them.</sub></p>
 
-<p align="center"><img src="docs/screenshots/limits.png" alt="Settings, Data limits: daily 10 GB at 50%, weekly 50 GB at 10%, monthly 200 GB at 84%, with options for the bar and notifications"></p>
+<p align="center"><img src="docs/screenshots/limits.png" alt="Settings, Data limits: daily 10 GB at 9%, weekly 50 GB at 24%, monthly 200 GB at 28%, with options for the bar and notifications"></p>
 <p align="center"><sub>Data limits: how much of each allowance is used, and when it resets.</sub></p>
 
 <p align="center"><sub>Screenshots use sample data.</sub></p>

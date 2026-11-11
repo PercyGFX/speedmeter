@@ -106,6 +106,21 @@ impl Palette {
     pub fn quiet(&self, c: Color32) -> Color32 {
         blend(c, self.content, 0.38)
     }
+
+    /// Solid accent surfaces (switches, primary buttons, radio marks), which carry
+    /// white on top. On dark, `accent` itself is a light blue meant for text.
+    pub fn fill(&self) -> Color32 {
+        if self.dark {
+            Color32::from_rgb(0x2B, 0x7A, 0xEB)
+        } else {
+            self.accent
+        }
+    }
+
+    /// A neutral tint over `under`: `t` of the way toward the text color.
+    pub fn tint(&self, under: Color32, t: f32) -> Color32 {
+        blend(under, self.text, t)
+    }
 }
 
 pub const DISPLAY: &str = "display";
@@ -174,8 +189,8 @@ fn visuals(p: &Palette) -> Visuals {
     v.faint_bg_color = p.layer;
     v.code_bg_color = p.layer;
     v.hyperlink_color = p.accent;
-    v.selection.bg_fill = p.accent;
-    v.selection.stroke = Stroke::new(1.0_f32, p.on_accent);
+    v.selection.bg_fill = p.fill();
+    v.selection.stroke = Stroke::new(1.0_f32, Color32::WHITE);
     v.window_stroke = Stroke::new(1.0_f32, p.line);
     v.window_corner_radius = CornerRadius::same(8);
     v.menu_corner_radius = CornerRadius::same(8);

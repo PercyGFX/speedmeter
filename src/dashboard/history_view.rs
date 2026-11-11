@@ -276,17 +276,25 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let can_back = st.scale != Scale::All
             && first_day.is_none_or(|f| period_start(st.scale, st.anchor) > period_start(st.scale, f));
         let can_fwd = st.scale != Scale::All && shift(st.scale, period_start(st.scale, st.anchor), 1) <= today;
+        // Back and forward sit together before the title, so they don't move
+        // when the title changes length.
         if st.scale != Scale::All {
-            if ui::icon_button(ui, &p, "‹", can_back) {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if ui::chevron_button(ui, &p, true, can_back) {
                 st.anchor = shift(st.scale, period_start(st.scale, st.anchor), -1);
             }
-        }
-        ui.label(RichText::new(title(st.scale, st.anchor)).font(theme::display(24.0)).color(p.text));
-        if st.scale != Scale::All {
-            if ui::icon_button(ui, &p, "›", can_fwd) {
+            if ui::chevron_button(ui, &p, false, can_fwd) {
                 st.anchor = shift(st.scale, period_start(st.scale, st.anchor), 1).min(today);
             }
+            ui.add_space(8.0);
         }
+        // The full weekday and month don't fit next to the selector in a small window.
+        let heading = if st.scale == Scale::Day && ui.available_width() < 660.0 {
+            st.anchor.format("%a, %b %-d, %Y").to_string()
+        } else {
+            title(st.scale, st.anchor)
+        };
+        ui.label(RichText::new(heading).font(theme::display(24.0)).color(p.text));
         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
             let mut scale = st.scale;
             if ui::segmented(ui, &p, "scale", &mut scale, &[(Scale::Day, "Day"), (Scale::Month, "Month"), (Scale::Year, "Year"), (Scale::All, "All time")]) {
@@ -497,7 +505,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             });
         });
     } else {
-        if scale == Scale::Month {
+        // In a narrow window the calendar goes with the list of days only.
+        if scale == Scale::Month && mode == ListMode::Periods {
             ui.allocate_ui_with_layout(vec2(340.0, 0.0), Layout::top_down(egui::Align::Min), |ui| {
                 clicked_day = charts::calendar(ui, &p, anchor.year(), anchor.month(), &rows, today);
             });
