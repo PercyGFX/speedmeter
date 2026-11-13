@@ -1,7 +1,7 @@
 //! Settings page. Every change applies right away (saved and sent to the meter).
 
 use super::theme;
-use super::{ui, App};
+use super::{i18n, ui, App};
 use crate::config::{Connection, Layout as MeterLayout, Placement, ThemePref, FONT_CHOICES, MB};
 use crate::format::{Decimals, UnitMode};
 use crate::net::Adapter;
@@ -34,15 +34,17 @@ fn same_choice(a: &Connection, b: &Connection) -> bool {
 fn connection_list(app: &mut App, ui: &mut Ui) {
     let p = app.pal;
     let now = match (&app.cfg.connection, &app.snap) {
-        (Connection::Auto, Some(s)) if s.is_fresh() && !s.iface_name.is_empty() => format!(" Right now that's {}.", s.iface_name),
+        (Connection::Auto, Some(s)) if s.is_fresh() && !s.iface_name.is_empty() =>
+            i18n::tr_with(" Right now that's {adapter}.", &[("adapter", &s.iface_name)]),
         _ => String::new(),
     };
     let mut options = vec![
-        (Connection::Auto, "Automatic".to_string(), format!("Follows the network Windows uses to reach the internet.{now}")),
+        (Connection::Auto, "Automatic".to_string(),
+            i18n::tr_with("Follows the network Windows uses to reach the internet.{now}", &[("now", &now)])),
         (
             Connection::All,
             "All networks combined".to_string(),
-            "Adds every connected adapter together. Virtual adapters such as Hyper-V or a VPN can count the same traffic twice."
+            i18n::tr("Adds every connected adapter together. Virtual adapters such as Hyper-V or a VPN can count the same traffic twice.")
                 .to_string(),
         ),
     ];
@@ -61,6 +63,8 @@ fn connection_list(app: &mut App, ui: &mut Ui) {
     }
     for (i, (conn, title, desc)) in options.into_iter().enumerate() {
         let selected = same_choice(&app.cfg.connection, &conn);
+        let shown_title = i18n::tr(&title);
+        let shown_desc = i18n::tr(&desc);
         let frame = egui::Frame::NONE
             .fill(p.layer)
             .stroke(egui::Stroke::new(1.0_f32, if selected { theme::blend(p.line, p.fill(), 0.85) } else { p.line }))
@@ -69,8 +73,8 @@ fn connection_list(app: &mut App, ui: &mut Ui) {
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().item_spacing.y = 2.0;
-                ui.label(RichText::new(&title).font(theme::body(14.0)).color(p.text));
-                ui.add(egui::Label::new(RichText::new(&desc).font(theme::body(12.5)).color(p.dim)).wrap());
+                ui.label(RichText::new(shown_title).font(theme::body(14.0)).color(p.text));
+                ui.add(egui::Label::new(RichText::new(shown_desc).font(theme::body(12.5)).color(p.dim)).wrap());
             });
         let resp = ui.interact(frame.response.rect, ui.id().with(("conn", i)), Sense::click());
         ui::radio_mark(ui.painter(), &p, pos2(frame.response.rect.left() + 25.0, frame.response.rect.center().y), selected, resp.hovered());
@@ -277,7 +281,42 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let p = app.pal;
     app.refresh_adapters();
 
-    ui.label(RichText::new("Network").font(theme::strong(15.0)).color(p.text));
+    ui.label(RichText::new(i18n::tr("Network")).font(theme::strong(15.0)).color(p.text));
+    ui.add_space(4.0);
+    let languages = i18n::choices();
+    let selected = languages.iter()
+        .find(|(code, _)| code == &app.cfg.language)
+        .map_or("English", |(_, name)| name.as_str());
+    // Keep the selector visible even when a scroll area reports a wide content
+    // region: unlike other settings rows, this is a fixed-width dropdown.
+    let row_width = ui.available_width()
+        .min((ui.ctx().screen_rect().right() - ui.cursor().left() - 36.0).max(320.0));
+    egui::Frame::NONE
+        .fill(p.layer)
+        .stroke(egui::Stroke::new(1.0_f32, p.line))
+        .corner_radius(egui::CornerRadius::same(8))
+        .inner_margin(egui::Margin::symmetric(18, 12))
+        .show(ui, |ui| {
+            ui.set_width(row_width - 36.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(i18n::tr("Language")).font(theme::body(14.0)).color(p.text));
+                // A fixed gap avoids pushing the selector outside a narrow viewport.
+                ui.add_space(24.0);
+                egui::ComboBox::from_id_salt("display-language")
+                    .width(140.0)
+                    .selected_text(selected)
+                    .show_ui(ui, |ui| {
+                        let previous = app.cfg.language.clone();
+                        for (code, name) in &languages {
+                            ui.selectable_value(&mut app.cfg.language, code.clone(), name);
+                        }
+                        if app.cfg.language != previous {
+                            i18n::set(&app.cfg.language);
+                            ui.ctx().request_repaint();
+                        }
+                    });
+            });
+        });
     ui.add_space(4.0);
     connection_list(app, ui);
 

@@ -3,7 +3,7 @@
 
 use super::charts::{self, TableRow};
 use super::theme;
-use super::{ui, App};
+use super::{i18n, ui, App};
 use crate::apps::{self, ServiceState};
 use crate::format::{self, UnitMode};
 use crate::heat;
@@ -37,8 +37,8 @@ pub fn rows(app: &mut App, ui: &Ui, list: &[AppRow]) -> Vec<TableRow> {
             let tip = vec![
                 (r.name.clone(), p.text, theme::body(14.0)),
                 (location(&r.key), p.dim, theme::body(12.0)),
-                (format!("↓ {} downloaded", format::bytes(r.rx)), p.text, theme::display(15.0)),
-                (format!("↑ {} uploaded", format::bytes(r.tx)), p.text, theme::display(15.0)),
+                (i18n::tr_with("↓ {amount} downloaded", &[("amount", &format::bytes(r.rx))]), p.text, theme::display(15.0)),
+                (i18n::tr_with("↑ {amount} uploaded", &[("amount", &format::bytes(r.tx))]), p.text, theme::display(15.0)),
             ];
             TableRow { label: r.name.clone(), detail, lead, rx: r.rx, tx: r.tx, tip }
         })
@@ -175,7 +175,7 @@ pub fn live_list(app: &mut App, ui: &mut Ui, max_rows: usize) {
     let current = app.app_rates.current();
     if current.is_empty() {
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
-        ui.painter().text(rect.left_center() + vec2(4.0, 0.0), Align2::LEFT_CENTER, "No app is using the network right now.", theme::body(13.5), p.dim);
+        ui.painter().text(rect.left_center() + vec2(4.0, 0.0), Align2::LEFT_CENTER, i18n::tr("No app is using the network right now."), theme::body(13.5), p.dim);
         return;
     }
     let width = ui.available_width();
@@ -186,9 +186,9 @@ pub fn live_list(app: &mut App, ui: &mut Ui, max_rows: usize) {
 
     let (head, _) = ui.allocate_exact_size(vec2(width, 26.0), Sense::hover());
     let painter = ui.painter();
-    painter.text(pos2(head.left() + 4.0, head.center().y), Align2::LEFT_CENTER, "App", theme::body(12.0), p.faint);
-    painter.text(pos2(head.left() + cols[0], head.center().y), Align2::RIGHT_CENTER, "Download", theme::body(12.0), p.faint);
-    painter.text(pos2(head.left() + cols[1], head.center().y), Align2::RIGHT_CENTER, "Upload", theme::body(12.0), p.faint);
+    painter.text(pos2(head.left() + 4.0, head.center().y), Align2::LEFT_CENTER, i18n::tr("App"), theme::body(12.0), p.faint);
+    painter.text(pos2(head.left() + cols[0], head.center().y), Align2::RIGHT_CENTER, i18n::tr("Download"), theme::body(12.0), p.faint);
+    painter.text(pos2(head.left() + cols[1], head.center().y), Align2::RIGHT_CENTER, i18n::tr("Upload"), theme::body(12.0), p.faint);
 
     for (key, down, up) in current.iter().take(max_rows) {
         let (name, file) = match app.icons.look(ui.ctx(), key, px) {
@@ -234,7 +234,7 @@ pub fn live_list(app: &mut App, ui: &mut Ui, max_rows: usize) {
     }
     if current.len() > max_rows {
         ui.add_space(4.0);
-        ui.label(RichText::new(format!("and {} more", current.len() - max_rows)).font(theme::body(12.5)).color(p.faint));
+        ui.label(RichText::new(i18n::tr_with("and {count} more", &[("count", &(current.len() - max_rows).to_string())])).font(theme::body(12.5)).color(p.faint));
     }
 }
 

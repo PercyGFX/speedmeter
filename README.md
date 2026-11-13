@@ -54,6 +54,8 @@
 - **History:** totals by hour, day, month, year or all time, with a calendar heatmap. Click any bar, day or row to drill in.
 - **Which apps used your data:** for any day, month, year or single hour, every app with its download and upload. Optional, see [Per-app usage](#per-app-usage).
 - **Settings:** every option applies instantly, no Save button.
+- **Languages:** built-in Simplified Chinese or English, plus optional JSON
+  packs and user overrides. See [localization](docs/localization.md).
 
 **Around it**
 

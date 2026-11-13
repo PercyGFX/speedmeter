@@ -44,6 +44,7 @@ features = [
     "Win32_System_Time",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    "Win32_Globalization",
     "Win32_Graphics_Direct2D",
     "Win32_Graphics_Direct2D_Common",
     "Win32_Graphics_DirectWrite",

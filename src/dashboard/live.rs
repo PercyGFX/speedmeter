@@ -3,7 +3,7 @@
 use super::apps_ui;
 use super::charts::{self, Bar, Wave};
 use super::theme::{self, Palette};
-use super::{ui, App};
+use super::{i18n, ui, App};
 use crate::format;
 use crate::heat;
 use eframe::egui::{self, pos2, vec2, Layout, RichText, Sense, Ui};
@@ -42,13 +42,13 @@ fn readout(ui: &mut Ui, p: &Palette, down: bool, row: &crate::anim::RowState, an
     painter.galley(pos2(x + value_w + 8.0, baseline - unit.size().y + unit_size * 0.2), unit, p.dim);
 
     ui.add_space(2.0);
-    ui.label(RichText::new(caption).font(theme::body(13.0)).color(p.dim));
+    ui.label(RichText::new(i18n::tr(caption)).font(theme::body(13.0)).color(p.dim));
 }
 
 fn totals_block(ui: &mut Ui, p: &Palette, title: &str, rx: u64, tx: u64) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
-        ui.label(RichText::new(title).font(theme::body(13.0)).color(p.dim));
+        ui.label(RichText::new(i18n::tr(title)).font(theme::body(13.0)).color(p.dim));
         let (v, u) = format::bytes_parts(rx + tx);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0;
@@ -57,7 +57,7 @@ fn totals_block(ui: &mut Ui, p: &Palette, title: &str, rx: u64, tx: u64) {
             ui.label(RichText::new(u).font(theme::display(17.0)).color(p.dim));
         });
         ui.label(
-            RichText::new(format!("{} down, {} up", format::bytes(rx), format::bytes(tx)))
+            RichText::new(i18n::tr_with("{download} down, {upload} up", &[("download", &format::bytes(rx)), ("upload", &format::bytes(tx))]))
                 .font(theme::body(12.5))
                 .color(p.faint),
         );
@@ -79,7 +79,7 @@ fn limit_block(ui: &mut Ui, p: &Palette, u: &crate::limits::Usage) {
         ui.set_width((ui.available_width() - 28.0).max(120.0));
         ui.spacing_mut().item_spacing.y = 4.0;
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("{} limit", u.period.name())).font(theme::body(13.0)).color(p.dim));
+            ui.label(RichText::new(i18n::tr_with("{period} limit", &[("period", i18n::tr(u.period.name()))])).font(theme::body(13.0)).color(p.dim));
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                 let pct = RichText::new(format!("{}%", u.percent())).font(theme::display(15.0));
                 ui.label(if f >= 0.8 { pct.color(color) } else { pct.color(p.text) });
@@ -232,7 +232,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         totals_block(&mut cols[0], &p, "Today", today.0, today.1);
         totals_block(&mut cols[1], &p, "This month", month.0, month.1);
         let ui = &mut cols[2];
-        ui.label(RichText::new("Last 24 hours").font(theme::body(13.0)).color(p.dim));
+        ui.label(RichText::new(i18n::tr("Last 24 hours")).font(theme::body(13.0)).color(p.dim));
         let bars: Vec<Bar> = last24
             .iter()
             .map(|r| {
@@ -258,7 +258,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // Which apps are using the network.
     ui.add_space(28.0);
-    ui.label(RichText::new("Apps using the network now").font(theme::strong(15.0)).color(p.text));
+    ui.label(RichText::new(i18n::tr("Apps using the network now")).font(theme::strong(15.0)).color(p.text));
     ui.add_space(6.0);
     let live_state = app.snap.as_ref().filter(|s| s.is_fresh()).map(|s| s.apps_state);
     // A card if something needs attention (off, stopped, an update), and the list
@@ -286,9 +286,9 @@ fn notice_not_running(app: &mut App, ui: &mut Ui) {
                 let (r, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
                 ui.painter().circle_filled(r.center(), 4.0, p.heavy);
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("SpeedMeter isn't measuring right now").font(theme::body(14.0)).color(p.text));
+                    ui.label(RichText::new(i18n::tr("SpeedMeter isn't measuring right now")).font(theme::body(14.0)).color(p.text));
                     ui.label(
-                        RichText::new("Start it to see live speeds in the taskbar and keep recording history.")
+                        RichText::new(i18n::tr("Start it to see live speeds in the taskbar and keep recording history."))
                             .font(theme::body(12.5))
                             .color(p.dim),
                     );

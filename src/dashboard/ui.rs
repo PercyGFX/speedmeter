@@ -1,5 +1,6 @@
 //! Small custom controls drawn to match Windows 11.
 
+use super::i18n;
 use super::theme::{self, Palette};
 use eframe::egui::{
     self, pos2, vec2, Align, Align2, Color32, CornerRadius, FontId, Id, LayerId, Layout, Order,
@@ -34,7 +35,7 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, p: &Palette, id: &str, value:
     let h = 32.0;
     let pad = 3.0;
     // Size each option for its semibold label, so text doesn't shift when chosen.
-    let widths: Vec<f32> = options.iter().map(|(_, l)| text_width(ui, l, &chosen_font) + 28.0).collect();
+    let widths: Vec<f32> = options.iter().map(|(_, l)| text_width(ui, i18n::tr(l), &chosen_font) + 28.0).collect();
     let total: f32 = widths.iter().sum::<f32>() + pad * 2.0;
     let (rect, _) = ui.allocate_exact_size(vec2(total, h), Sense::hover());
     let painter = ui.painter().clone();
@@ -83,7 +84,7 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, p: &Palette, id: &str, value:
         } else {
             (font.clone(), if hovered == Some(i) { p.text } else { p.dim })
         };
-        painter.text(slots[i].center() - vec2(0.0, 0.5), Align2::CENTER_CENTER, *label, f, color);
+        painter.text(slots[i].center() - vec2(0.0, 0.5), Align2::CENTER_CENTER, i18n::tr(label), f, color);
     }
     changed
 }
@@ -122,6 +123,8 @@ pub fn radio_mark(painter: &egui::Painter, p: &Palette, center: Pos2, selected: 
 /// The sidebar's update card: what's available, or how far along it is
 /// (`progress` 0 to 1). Returns true when clicked.
 pub fn update_card(ui: &mut Ui, p: &Palette, glyph: Option<char>, title: &str, detail: &str, progress: Option<f32>, clickable: bool) -> bool {
+    let title = i18n::tr(title);
+    let detail = i18n::tr(detail);
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 56.0), if clickable { Sense::click() } else { Sense::hover() });
     let painter = ui.painter();
     let hot = clickable && resp.hovered();
@@ -173,6 +176,7 @@ pub fn nav_item(ui: &mut Ui, p: &Palette, glyph: Option<char>, label: &str, sele
 
 /// Flat button. `primary` uses the accent fill.
 pub fn button(ui: &mut Ui, p: &Palette, label: &str, primary: bool) -> Response {
+    let label = i18n::tr(label);
     let font = theme::body(14.0);
     let w = text_width(ui, label, &font) + 30.0;
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 32.0), Sense::click());
@@ -213,6 +217,8 @@ pub fn chevron_button(ui: &mut Ui, p: &Palette, back: bool, enabled: bool) -> bo
 /// A Windows Settings style row: title and description on the left, the control on
 /// the right.
 pub fn setting_row(ui: &mut Ui, p: &Palette, title: &str, desc: Option<&str>, control: impl FnOnce(&mut Ui)) {
+    let title_translated = i18n::tr(title);
+    let desc = desc.map(i18n::tr);
     // The text gets whatever the control doesn't need. The control's width is only
     // known once it's drawn, so it's remembered from the previous frame.
     let width_id = ui.id().with(("setting-row", title));
@@ -234,7 +240,7 @@ pub fn setting_row(ui: &mut Ui, p: &Palette, title: &str, desc: Option<&str>, co
                 });
                 ui.allocate_ui_with_layout(vec2(text_w, title_h + desc_h), Layout::top_down(Align::Min), |ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.label(RichText::new(title).font(theme::body(14.0)).color(p.text));
+                    ui.label(RichText::new(title_translated).font(theme::body(14.0)).color(p.text));
                     if let Some(d) = desc {
                         ui.add(egui::Label::new(RichText::new(d).font(theme::body(12.5)).color(p.dim)).wrap());
                     }
@@ -251,14 +257,14 @@ pub fn setting_row(ui: &mut Ui, p: &Palette, title: &str, desc: Option<&str>, co
 
 pub fn section(ui: &mut Ui, p: &Palette, title: &str) {
     ui.add_space(22.0);
-    ui.label(RichText::new(title).font(theme::strong(15.0)).color(p.text));
+    ui.label(RichText::new(i18n::tr(title)).font(theme::strong(15.0)).color(p.text));
     ui.add_space(4.0);
 }
 
 /// Floating info box near the pointer (chart hovers). Each line has its own color.
 pub fn tooltip(ctx: &egui::Context, p: &Palette, anchor: Pos2, lines: &[(String, Color32, FontId)]) {
     let painter = ctx.layer_painter(LayerId::new(Order::Tooltip, Id::new("speedmeter-tip")));
-    let galleys: Vec<_> = lines.iter().map(|(t, c, f)| painter.layout_no_wrap(t.clone(), f.clone(), *c)).collect();
+    let galleys: Vec<_> = lines.iter().map(|(t, c, f)| painter.layout_no_wrap(i18n::tr(t).to_string(), f.clone(), *c)).collect();
     let w = galleys.iter().map(|g| g.size().x).fold(0.0, f32::max) + 24.0;
     let h = galleys.iter().map(|g| g.size().y).sum::<f32>() + 4.0 * (galleys.len().saturating_sub(1)) as f32 + 20.0;
     let screen = ctx.screen_rect();
