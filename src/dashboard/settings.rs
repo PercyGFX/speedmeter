@@ -287,18 +287,36 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let selected = languages.iter()
         .find(|(code, _)| code == &app.cfg.language)
         .map_or("English", |(_, name)| name.as_str());
-    ui::setting_row(ui, &p, "Language", None, |ui| {
-        egui::ComboBox::from_id_salt("display-language").selected_text(selected).show_ui(ui, |ui| {
-            let previous = app.cfg.language.clone();
-            for (code, name) in &languages {
-                ui.selectable_value(&mut app.cfg.language, code.clone(), name);
-            }
-            if app.cfg.language != previous {
-                i18n::set(&app.cfg.language);
-                ui.ctx().request_repaint();
-            }
+    // Keep the selector visible even when a scroll area reports a wide content
+    // region: unlike other settings rows, this is a fixed-width dropdown.
+    let row_width = ui.available_width()
+        .min((ui.ctx().screen_rect().right() - ui.cursor().left() - 36.0).max(320.0));
+    egui::Frame::NONE
+        .fill(p.layer)
+        .stroke(egui::Stroke::new(1.0_f32, p.line))
+        .corner_radius(egui::CornerRadius::same(8))
+        .inner_margin(egui::Margin::symmetric(18, 12))
+        .show(ui, |ui| {
+            ui.set_width(row_width - 36.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(i18n::tr("Language")).font(theme::body(14.0)).color(p.text));
+                ui.add_space((ui.available_width() - 160.0).max(4.0));
+                egui::ComboBox::from_id_salt("display-language")
+                    .width(140.0)
+                    .selected_text(selected)
+                    .show_ui(ui, |ui| {
+                        let previous = app.cfg.language.clone();
+                        for (code, name) in &languages {
+                            ui.selectable_value(&mut app.cfg.language, code.clone(), name);
+                        }
+                        if app.cfg.language != previous {
+                            i18n::set(&app.cfg.language);
+                            ui.ctx().request_repaint();
+                        }
+                    });
+            });
         });
-    });
+    ui.add_space(4.0);
     connection_list(app, ui);
 
     ui::section(ui, &p, "Taskbar meter");
