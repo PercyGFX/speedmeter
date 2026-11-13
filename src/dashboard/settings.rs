@@ -300,7 +300,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ui.set_width(row_width - 36.0);
             ui.horizontal(|ui| {
                 ui.label(RichText::new(i18n::tr("Language")).font(theme::body(14.0)).color(p.text));
-                ui.add_space((ui.available_width() - 160.0).max(4.0));
+                // A fixed gap avoids pushing the selector outside a narrow viewport.
+                ui.add_space(24.0);
                 egui::ComboBox::from_id_salt("display-language")
                     .width(140.0)
                     .selected_text(selected)
