@@ -152,6 +152,7 @@ pub fn update_card(ui: &mut Ui, p: &Palette, glyph: Option<char>, title: &str, d
 
 /// Navigation rail entry: an accent bar marks the current page.
 pub fn nav_item(ui: &mut Ui, p: &Palette, glyph: Option<char>, label: &str, selected: bool) -> bool {
+    theme::ensure_cjk(ui.ctx(), &[label]);
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
     let painter = ui.painter();
     if selected {

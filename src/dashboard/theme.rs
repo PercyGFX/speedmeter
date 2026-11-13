@@ -33,25 +33,17 @@ fn scripts_in(text: &str) -> u8 {
 
 /// Only add Windows CJK font fallbacks when a visible adapter or app name
 /// needs them. Keep the fonts for the rest of the dashboard process lifetime.
-pub fn ensure_cjk(ctx: &egui::Context, text: &str) {
-    let needed = scripts_in(text);
+pub fn ensure_cjk(ctx: &egui::Context, labels: &[&str]) {
+    let needed = labels.iter().fold(0, |bits, text| bits | scripts_in(text));
     if needed == 0 {
         return;
     }
-    let mut loaded = LOADED_CJK.load(Ordering::Relaxed);
-    loop {
-        let combined = loaded | needed;
-        if combined == loaded {
-            return;
-        }
-        match LOADED_CJK.compare_exchange(loaded, combined, Ordering::AcqRel, Ordering::Relaxed) {
-            Ok(_) => {
-                install_fonts_for(ctx, combined);
-                ctx.request_repaint();
-                return;
-            }
-            Err(actual) => loaded = actual,
-        }
+    // egui renders the dashboard on one UI thread. Install each script
+    // only once, but combine all names in a row into a single font update.
+    let loaded = LOADED_CJK.fetch_or(needed, Ordering::Relaxed);
+    if loaded & needed != needed {
+        install_fonts_for(ctx, loaded | needed);
+        ctx.request_repaint();
     }
 }
 
