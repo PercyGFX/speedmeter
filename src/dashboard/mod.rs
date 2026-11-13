@@ -161,12 +161,7 @@ impl App {
     fn new(cc: &eframe::CreationContext, page: u32) -> Self {
         let has_icons = theme::install_fonts(&cc.egui_ctx);
         let mut cfg = config::load();
-        if cfg.language.is_empty() {
-            cfg.language = i18n::default_language();
-        } else if !i18n::available(&cfg.language) {
-            cfg.language = "en-US".to_string();
-        }
-        i18n::set(&cfg.language);
+        i18n::configure(&mut cfg.language);
         let pal = palette_for(&cfg);
         theme::apply(&cc.egui_ctx, &pal);
         let logo = cc.egui_ctx.load_texture(
@@ -442,12 +437,7 @@ impl App {
             let m = config::modified();
             if m != self.cfg_mtime && self.cfg == self.saved {
                 self.cfg = config::load();
-                if self.cfg.language.is_empty() {
-                    self.cfg.language = i18n::default_language();
-                } else if !i18n::available(&self.cfg.language) {
-                    self.cfg.language = "en-US".to_string();
-                }
-                i18n::set(&self.cfg.language);
+                i18n::configure(&mut self.cfg.language);
                 self.saved = self.cfg.clone();
                 self.cfg_mtime = m;
             }
@@ -500,7 +490,7 @@ impl App {
             (PAGE_HISTORY, '\u{E81C}', "History"),
             (PAGE_SETTINGS, '\u{E713}', "Settings"),
         ] {
-            if ui::nav_item(ui, &p, icons.then_some(glyph), label, self.page == page) {
+            if ui::nav_item(ui, &p, icons.then_some(glyph), i18n::tr(label), self.page == page) {
                 self.page = page;
             }
             ui.add_space(2.0);

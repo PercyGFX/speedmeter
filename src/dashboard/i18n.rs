@@ -111,6 +111,16 @@ pub fn set(code: &str) {
     ACTIVE.store(index, Ordering::Relaxed);
 }
 
+/// Resolve a saved preference once and activate it (also used after external config reload).
+pub fn configure(language: &mut String) {
+    if language.is_empty() {
+        *language = default_language();
+    } else if !available(language) {
+        *language = "en-US".to_string();
+    }
+    set(language);
+}
+
 fn selected_for_locale(locale: &str, available: &[LanguagePack]) -> String {
     if let Some(pack) = available
         .iter()

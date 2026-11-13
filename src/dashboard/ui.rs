@@ -170,7 +170,7 @@ pub fn nav_item(ui: &mut Ui, p: &Palette, glyph: Option<char>, label: &str, sele
         painter.text(pos2(x, rect.center().y), Align2::LEFT_CENTER, g.to_string(), theme::icon(16.0), color);
         x += 30.0;
     }
-    painter.text(pos2(x, rect.center().y), Align2::LEFT_CENTER, i18n::tr(label), theme::body(14.0), color);
+    painter.text(pos2(x, rect.center().y), Align2::LEFT_CENTER, label, theme::body(14.0), color);
     resp.clicked()
 }
 
