@@ -10,7 +10,42 @@ use eframe::egui::{
     self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style,
     TextStyle, Theme, Visuals,
 };
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
+
+// Loading a full CJK font at dashboard startup costs several megabytes even for
+// users who never display CJK text. Add only the scripts that actually appear.
+const HAN: u8 = 1;
+const JAPANESE: u8 = 2;
+const KOREAN: u8 = 4;
+static LOADED_CJK: AtomicU8 = AtomicU8::new(0);
+
+fn scripts_in(text: &str) -> u8 {
+    text.chars().fold(0, |flags, ch| {
+        flags | match ch as u32 {
+            0x3400..=0x9FFF | 0xF900..=0xFAFF => HAN,
+            0x3040..=0x30FF | 0x31F0..=0x31FF | 0xFF66..=0xFF9D => JAPANESE,
+            0x1100..=0x11FF | 0x3130..=0x318F | 0xAC00..=0xD7AF => KOREAN,
+            _ => 0,
+        }
+    })
+}
+
+/// Only add Windows CJK font fallbacks when a visible adapter or app name
+/// needs them. Keep the fonts for the rest of the dashboard process lifetime.
+pub fn ensure_cjk(ctx: &egui::Context, labels: &[&str]) {
+    let needed = labels.iter().fold(0, |bits, text| bits | scripts_in(text));
+    if needed == 0 {
+        return;
+    }
+    // egui renders the dashboard on one UI thread. Install each script
+    // only once, but combine all names in a row into a single font update.
+    let loaded = LOADED_CJK.fetch_or(needed, Ordering::Relaxed);
+    if loaded & needed != needed {
+        install_fonts_for(ctx, loaded | needed);
+        ctx.request_repaint();
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Palette {
@@ -146,6 +181,11 @@ pub fn icon(size: f32) -> FontId {
 
 /// Loads Windows' own fonts. Returns whether the Fluent icon font was found.
 pub fn install_fonts(ctx: &egui::Context) -> bool {
+    LOADED_CJK.store(0, Ordering::Relaxed);
+    install_fonts_for(ctx, 0)
+}
+
+fn install_fonts_for(ctx: &egui::Context, scripts: u8) -> bool {
     let mut fonts = FontDefinitions::default();
     let fallback: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
     let dir = std::path::PathBuf::from(std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into())).join("Fonts");
@@ -162,15 +202,18 @@ pub fn install_fonts(ctx: &egui::Context) -> bool {
     let segoe_sb = load("segoe_sb", &["seguisb.ttf", "segoeuib.ttf"]);
     let bahn = load("bahn", &["bahnschrift.ttf"]);
     let icons = load("fluent", &["SegoeIcons.ttf", "segmdl2.ttf"]);
+    let han = scripts & HAN != 0 && load("han", &["msyh.ttf", "simhei.ttf", "msyh.ttc", "simsun.ttc"]);
+    let japanese = scripts & JAPANESE != 0 && load("japanese", &["YuGothR.ttc", "YuGothM.ttc", "msgothic.ttc"]);
+    let korean = scripts & KOREAN != 0 && load("korean", &["malgun.ttf", "malgunbd.ttf"]);
 
     let chain = |first: &[(&str, bool)]| -> Vec<String> {
         let mut v: Vec<String> = first.iter().filter(|(_, ok)| *ok).map(|(k, _)| k.to_string()).collect();
         v.extend(fallback.iter().cloned());
         v
     };
-    let prop = chain(&[("segoe", segoe)]);
-    let strong_fam = chain(&[("segoe_sb", segoe_sb), ("segoe", segoe)]);
-    let display_fam = chain(&[("bahn", bahn), ("segoe", segoe)]);
+    let prop = chain(&[("segoe", segoe), ("japanese", japanese), ("korean", korean), ("han", han)]);
+    let strong_fam = chain(&[("segoe_sb", segoe_sb), ("segoe", segoe), ("japanese", japanese), ("korean", korean), ("han", han)]);
+    let display_fam = chain(&[("bahn", bahn), ("segoe", segoe), ("japanese", japanese), ("korean", korean), ("han", han)]);
     let icon_fam = chain(&[("fluent", icons)]);
     fonts.families.insert(FontFamily::Proportional, prop);
     fonts.families.insert(FontFamily::Name(STRONG.into()), strong_fam);
@@ -178,6 +221,20 @@ pub fn install_fonts(ctx: &egui::Context) -> bool {
     fonts.families.insert(FontFamily::Name(ICONS.into()), icon_fam);
     ctx.set_fonts(fonts);
     icons
+}
+
+#[cfg(test)]
+mod cjk_tests {
+    use super::{scripts_in, HAN, JAPANESE, KOREAN};
+
+    #[test]
+    fn detects_only_needed_cjk_scripts() {
+        assert_eq!(scripts_in("Ethernet, Firefox, 1.2 MB/s"), 0);
+        assert_eq!(scripts_in("以太网 3"), HAN);
+        assert_eq!(scripts_in("日本語アプリ"), HAN | JAPANESE);
+        assert_eq!(scripts_in("한글 앱"), KOREAN);
+        assert_eq!(scripts_in("서울 中文"), HAN | KOREAN);
+    }
 }
 
 fn visuals(p: &Palette) -> Visuals {

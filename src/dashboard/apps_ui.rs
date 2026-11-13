@@ -32,6 +32,7 @@ pub fn rows(app: &mut App, ui: &Ui, list: &[AppRow]) -> Vec<TableRow> {
     let px = icon_px(ui);
     list.iter()
         .map(|r| {
+            theme::ensure_cjk(ui.ctx(), &[&r.name, &r.file, &r.key]);
             let lead = app.icons.lead(ui.ctx(), &r.key, &r.name, px, app.has_icons);
             let detail = if r.file.eq_ignore_ascii_case(&r.name) || r.key.starts_with("svc:") { String::new() } else { r.file.clone() };
             let tip = vec![
@@ -195,6 +196,7 @@ pub fn live_list(app: &mut App, ui: &mut Ui, max_rows: usize) {
             Some(l) => (l.name.clone(), l.file.clone()),
             None => (apps::special(key).map_or_else(|| key.rsplit('\\').next().unwrap_or(key).to_string(), |s| s.0.to_string()), String::new()),
         };
+        theme::ensure_cjk(ui.ctx(), &[&name, &file, key]);
         let lead = app.icons.lead(ui.ctx(), key, &name, px, app.has_icons);
         let (rect, resp) = ui.allocate_exact_size(vec2(width, 34.0), Sense::hover());
         let painter = ui.painter();
