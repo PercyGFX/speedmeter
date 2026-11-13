@@ -1,6 +1,7 @@
 //! Charts. Everything shares one idea: a horizontal "wire", with download drawn
 //! above it and upload below it on the same scale, colored by the heat tiers.
 
+use super::i18n;
 use super::theme::{self, Palette};
 use super::ui;
 use crate::config::Heat;
@@ -449,7 +450,7 @@ pub fn table(ui: &mut Ui, p: &Palette, first_col: &str, rows: &[TableRow], click
     let hy = head.center().y;
     painter.text(pos2(head.left() + 4.0, hy), Align2::LEFT_CENTER, first_col, theme::body(12.0), p.faint);
     for (i, name) in ["Download", "Upload", "Total"].iter().enumerate() {
-        painter.text(pos2(head.left() + cols[i + 1] + 4.0, hy), Align2::RIGHT_CENTER, *name, theme::body(12.0), p.faint);
+        painter.text(pos2(head.left() + cols[i + 1] + 4.0, hy), Align2::RIGHT_CENTER, i18n::tr(name), theme::body(12.0), p.faint);
     }
 
     let mut clicked = None;

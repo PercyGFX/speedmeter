@@ -150,6 +150,8 @@ pub struct Config {
     pub start_with_windows: bool,
     pub show_tray_icon: bool,
     pub theme: ThemePref,
+    /// Empty means follow Windows UI language when a language pack exists.
+    pub language: String,
     /// How long minute-level data is kept. Daily totals are kept forever.
     pub keep_minutes_days: u32,
     /// Download and install new releases in the background.
@@ -176,6 +178,7 @@ impl Default for Config {
             start_with_windows: true,
             show_tray_icon: true,
             theme: ThemePref::System,
+            language: String::new(),
             keep_minutes_days: 30,
             auto_update: true,
             limits: Limits::default(),
@@ -235,7 +238,7 @@ pub fn exists() -> bool {
 pub fn load() -> Config {
     std::fs::read_to_string(config_path())
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
+        .and_then(|s| serde_json::from_str(s.trim_start_matches('\u{feff}')).ok())
         .map(sanitize)
         .unwrap_or_default()
 }

@@ -5,6 +5,7 @@
 mod apps_ui;
 mod charts;
 mod history_view;
+mod i18n;
 mod icons;
 mod live;
 mod settings;
@@ -159,7 +160,13 @@ fn style_title_bar(hwnd: isize, p: &Palette) {
 impl App {
     fn new(cc: &eframe::CreationContext, page: u32) -> Self {
         let has_icons = theme::install_fonts(&cc.egui_ctx);
-        let cfg = config::load();
+        let mut cfg = config::load();
+        if cfg.language.is_empty() {
+            cfg.language = i18n::default_language();
+        } else if !i18n::available(&cfg.language) {
+            cfg.language = "en-US".to_string();
+        }
+        i18n::set(&cfg.language);
         let pal = palette_for(&cfg);
         theme::apply(&cc.egui_ctx, &pal);
         let logo = cc.egui_ctx.load_texture(
@@ -435,6 +442,12 @@ impl App {
             let m = config::modified();
             if m != self.cfg_mtime && self.cfg == self.saved {
                 self.cfg = config::load();
+                if self.cfg.language.is_empty() {
+                    self.cfg.language = i18n::default_language();
+                } else if !i18n::available(&self.cfg.language) {
+                    self.cfg.language = "en-US".to_string();
+                }
+                i18n::set(&self.cfg.language);
                 self.saved = self.cfg.clone();
                 self.cfg_mtime = m;
             }
@@ -500,8 +513,8 @@ impl App {
                 let (r, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
                 ui.painter().circle_filled(r.center(), 3.5, if running { p.busy } else { p.heavy });
                 let text = match &self.snap {
-                    Some(s) if running => format!("Measuring {}", s.iface_name),
-                    _ => "Not measuring".to_string(),
+                    Some(s) if running => i18n::tr_with("Measuring {adapter}", &[("adapter", &s.iface_name)]),
+                    _ => i18n::tr("Not measuring").to_string(),
                 };
                 ui.add(egui::Label::new(RichText::new(text).font(theme::body(12.5)).color(p.dim)).truncate());
             });
@@ -511,17 +524,17 @@ impl App {
             let (download, sync) = (icons.then_some('\u{E896}'), icons.then_some('\u{E895}'));
             match state {
                 UpdateState::Available(r) => {
-                    if ui::update_card(ui, &p, download, "Update available", &format!("Install version {}", r.version), None, true) {
+                    if ui::update_card(ui, &p, download, "Update available", &i18n::tr_with("Install version {version}", &[("version", &r.version)]), None, true) {
                         self.start_update(r);
                     }
                 }
                 UpdateState::Downloading { version, got, total } => {
                     let done = if total > 0 { got as f32 / total as f32 } else { 0.0 };
-                    let detail = format!("Version {version}, {:.0}%", done * 100.0);
+                    let detail = i18n::tr_with("Version {version}, {percent}%", &[("version", &version), ("percent", &format!("{:.0}", done * 100.0))]);
                     ui::update_card(ui, &p, download, "Downloading update", &detail, Some(done), false);
                 }
                 UpdateState::Installing(v) => {
-                    ui::update_card(ui, &p, sync, "Installing update", &format!("Version {v}, reopens shortly"), None, false);
+                    ui::update_card(ui, &p, sync, "Installing update", &i18n::tr_with("Version {version}, reopens shortly", &[("version", &v)]), None, false);
                 }
                 _ => {}
             }

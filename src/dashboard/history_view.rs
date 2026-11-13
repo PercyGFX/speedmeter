@@ -4,7 +4,7 @@
 use super::apps_ui;
 use super::charts::{self, Bar, TableRow};
 use super::theme;
-use super::{ui, App};
+use super::{i18n, ui, App};
 use crate::format;
 use crate::history::{self, AppRow, Row};
 use chrono::{Datelike, Duration, NaiveDate};
@@ -190,11 +190,20 @@ fn shift(scale: Scale, d: NaiveDate, dir: i32) -> NaiveDate {
 }
 
 fn title(scale: Scale, d: NaiveDate) -> String {
+    let year = d.year().to_string();
+    let month = d.month().to_string();
+    let day = d.day().to_string();
+    let month_name = d.format("%B").to_string();
+    let weekday = d.format("%A").to_string();
     match scale {
-        Scale::Day => d.format("%A, %B %-d, %Y").to_string(),
-        Scale::Month => d.format("%B %Y").to_string(),
-        Scale::Year => d.format("%Y").to_string(),
-        Scale::All => "All time".to_string(),
+        Scale::Day => i18n::tr_with("{weekday}, {month_name} {day}, {year}", &[
+            ("weekday", &weekday), ("month_name", &month_name), ("day", &day), ("year", &year), ("month", &month),
+        ]),
+        Scale::Month => i18n::tr_with("{month_name} {year}", &[
+            ("month_name", &month_name), ("year", &year), ("month", &month),
+        ]),
+        Scale::Year => i18n::tr_with("{year}", &[("year", &year)]),
+        Scale::All => i18n::tr("All time").to_string(),
     }
 }
 
@@ -261,7 +270,7 @@ fn stat(ui: &mut Ui, p: &theme::Palette, value: &str, unit: &str, caption: &str)
                 ui.label(RichText::new(unit).font(theme::display(15.0)).color(p.dim));
             }
         });
-        ui.label(RichText::new(caption).font(theme::body(12.5)).color(p.dim));
+        ui.label(RichText::new(i18n::tr(caption)).font(theme::body(12.5)).color(p.dim));
     });
 }
 
@@ -324,7 +333,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let anchor = app.hist.anchor;
     let Some(loaded) = app.hist.loaded.as_ref() else {
         ui.add_space(20.0);
-        ui.label(RichText::new("The history database couldn't be opened.").color(p.dim));
+        ui.label(RichText::new(i18n::tr("The history database couldn't be opened.")).color(p.dim));
         return;
     };
     let rows = loaded.rows.clone();
@@ -457,7 +466,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             ui.add_space(14.0);
             ui.label(RichText::new(format!("{:02}:00 to {:02}:00", h, (h + 1) % 24)).font(theme::body(14.0)).color(p.text));
             ui.add_space(6.0);
-            let link = ui.add(egui::Label::new(RichText::new("Show whole day").font(theme::body(13.0)).color(p.accent)).sense(egui::Sense::click()));
+            let link = ui.add(egui::Label::new(RichText::new(i18n::tr("Show whole day")).font(theme::body(13.0)).color(p.accent)).sense(egui::Sense::click()));
             if link.clicked() {
                 app.hist.hour = None;
             }
