@@ -7,6 +7,8 @@ Settings live in `%LOCALAPPDATA%\SpeedMeter\config.json`. The window and the rig
 | Key | Default | Description |
 | --- | --- | --- |
 | `connection` | `{ "mode": "auto" }` | `auto`, `all`, or `{ "mode": "adapter", "id": "{GUID}", "name": "Ethernet" }` |
+| `exclude_lan_from_live_speeds` | `false` | Settings > LAN traffic. Shows internet-only speeds on the taskbar and in Live, including **Apps using the network now**, while the counter is available. |
+| `exclude_lan_from_app_history` | `false` | Settings > LAN traffic. Records only internet traffic in the Apps breakdown in History. |
 | `placement` | `taskbar_right` | `taskbar_right`, `taskbar_left` or `floating` |
 | `offset` | `0` | Extra distance from the meter's anchor, in pixels at 100% scaling |
 | `floating_pos` | `null` | Last position of the floating meter `[x, y]` |
@@ -38,3 +40,5 @@ Settings live in `%LOCALAPPDATA%\SpeedMeter\config.json`. The window and the rig
 | `notify` | `true` | Windows notifications at 80%, 100% and every 25% over |
 
 Per-app counting isn't a setting in this file: it's on when the counter service is installed (**Settings > Per-app usage**).
+
+The LAN controls require a working, up-to-date per-app counter. Both switches appear off and are disabled if the counter is unavailable or needs an update. An older counter still records ordinary per-app totals while live speeds use the adapter totals. In that case, use **Update** under **Per-app usage**. Saved LAN choices take effect when the updated counter is available. The history filter applies to new per-app data. Overall history totals and usage toward data limits always come from the network adapters.

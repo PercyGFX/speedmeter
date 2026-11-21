@@ -155,10 +155,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         });
     });
 
-    let peak = |f: fn(&crate::shared::Sample) -> f32| -> f64 {
-        app.snap.as_ref().map(|s| s.samples.iter().map(f).fold(0.0f32, f32::max) as f64).unwrap_or(0.0)
-    };
-    let (peak_down, peak_up) = (peak(|s| s.down), peak(|s| s.up));
+    let samples = app.snap.as_ref().map_or(&[][..], |s| s.samples.as_slice());
+    let exclude_lan = app.cfg.exclude_lan_from_live_speeds && samples.last().is_some_and(|s| s.internet.is_some());
+    let [peak_down, peak_up] = samples.iter().filter_map(|s| s.speeds(exclude_lan))
+        .fold([0.0_f64; 2], |[pd, pu], [down, up]| [pd.max(down as f64), pu.max(up as f64)]);
     ui.columns(2, |cols| {
         readout(
             &mut cols[0],
@@ -207,8 +207,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     } else {
         app.snap.as_ref().and_then(|s| s.latest()).map(|s| s.t as f64).unwrap_or(0.0)
     };
-    let empty = Vec::new();
-    let samples = app.snap.as_ref().map(|s| &s.samples).unwrap_or(&empty);
     // Fill the first screen down to the totals; the app list starts below it.
     let height = (ui.available_height() - 128.0).clamp(220.0, 440.0);
     charts::waveform(
@@ -221,6 +219,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             heat: &app.cfg.heat,
             unit: app.cfg.unit,
             animate,
+            exclude_lan,
         },
         height,
     );

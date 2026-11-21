@@ -273,6 +273,39 @@ fn per_app(app: &mut App, ui: &mut Ui) {
     }
 }
 
+fn lan_traffic(app: &mut App, ui: &mut Ui) {
+    use std::sync::atomic::Ordering;
+    let p = app.pal;
+    app.refresh_service();
+    let available = app.service.supports_lan_filtering();
+    let requirement = if app.service.needs_update() && !app.service.busy.load(Ordering::Acquire) {
+        "Your per-app counter needs an update. Select Update under Per-app usage to enable LAN filters."
+    } else {
+        "Requires a working per-app counter with LAN support."
+    };
+    ui.label(RichText::new(requirement).font(theme::body(13.0)).color(p.dim));
+    let options = [
+        (
+            "Exclude LAN from live speeds",
+            "Show internet speeds on the taskbar and in Live, including its app list. Total speeds are shown if the counter is unavailable.",
+            &mut app.cfg.exclude_lan_from_live_speeds,
+        ),
+        (
+            "Exclude LAN from per-app history",
+            "Record only internet traffic in the Apps breakdown in History.",
+            &mut app.cfg.exclude_lan_from_app_history,
+        ),
+    ];
+    for (title, detail, saved) in options {
+        ui::setting_row(ui, &p, title, Some(detail), |ui| {
+            let mut on = available && *saved;
+            if ui.add_enabled_ui(available, |ui| ui::toggle(ui, &p, &mut on)).inner.changed() {
+                *saved = on;
+            }
+        });
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut Ui) {
     let p = app.pal;
     app.refresh_adapters();
@@ -390,6 +423,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     ui::section(ui, &p, "Per-app usage");
     per_app(app, ui);
+
+    ui::section(ui, &p, "LAN traffic");
+    lan_traffic(app, ui);
 
     ui::section(ui, &p, "Updates");
     super::update_rows(app, ui);

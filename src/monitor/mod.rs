@@ -144,6 +144,58 @@ fn demo_reading(tick: u64) -> Reading {
     Reading { down, up, rx: down as u64, tx: up as u64 }
 }
 
+/// Busiest apps for the current live speed mode.
+fn live_app_speeds(apps: &[apps::AppTraffic], exclude_lan: bool, elapsed: f64) -> Vec<AppSpeed> {
+    let seconds = if exclude_lan { elapsed as f32 } else { 1.0 };
+    let mut speeds: Vec<AppSpeed> = apps
+        .iter()
+        .filter_map(|app| {
+            let bytes = app.bytes(exclude_lan);
+            (bytes.rx > 0 || bytes.tx > 0).then(|| AppSpeed {
+                key: app.total.key.clone(),
+                down: bytes.rx as f32 / seconds,
+                up: bytes.tx as f32 / seconds,
+            })
+        })
+        .collect();
+    speeds.sort_by(|a, b| (b.down + b.up).total_cmp(&(a.down + a.up)));
+    speeds.truncate(shared::LIVE_APPS);
+    speeds
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::appnet::Bytes;
+
+    #[test]
+    fn live_app_filter_ranks_apps_by_internet_bytes_before_truncating() {
+        let mut apps: Vec<_> = (0..shared::LIVE_APPS)
+            .map(|i| apps::AppTraffic {
+                total: apps::AppDelta { key: format!("lan-{i}"), rx: 20_000, ..Default::default() },
+                internet: Bytes::default(),
+            })
+            .collect();
+        apps.push(apps::AppTraffic {
+            total: apps::AppDelta { key: "mixed".into(), rx: 1000, tx: 300, ..Default::default() },
+            internet: Bytes { rx: 500, tx: 100 },
+        });
+        apps.push(apps::AppTraffic {
+            total: apps::AppDelta { key: "internet".into(), rx: 600, tx: 100, ..Default::default() },
+            internet: Bytes { rx: 600, tx: 100 },
+        });
+
+        let totals = live_app_speeds(&apps, false, 2.0);
+        assert_eq!(totals.len(), shared::LIVE_APPS);
+        assert!(totals.iter().all(|app| app.key.starts_with("lan-")));
+        let filtered = live_app_speeds(&apps, true, 2.0);
+        assert_eq!(filtered, [
+            AppSpeed { key: "internet".into(), down: 300.0, up: 50.0 },
+            AppSpeed { key: "mixed".into(), down: 250.0, up: 50.0 },
+        ]);
+    }
+}
+
 /// The demo traffic shared among a few apps found on this PC, for the live list.
 fn demo_apps(r: &Reading, tick: u64) -> Vec<AppSpeed> {
     static APPS: std::sync::OnceLock<Vec<(String, f64, f64)>> = std::sync::OnceLock::new();
@@ -198,10 +250,12 @@ struct Monitor {
     motion_ok: bool,
     demo: bool,
     last: Reading,
+    last_internet: Option<Reading>,
     bucket: MinuteRecord,
     tracker: apps::Tracker,
     /// Per-app bytes in the current minute, by app key.
     app_bucket: std::collections::HashMap<String, apps::AppDelta>,
+    app_totals: crate::appnet::Bytes,
     /// The counting service delivered numbers during the current minute.
     apps_counted: bool,
     totals: Totals,
@@ -301,9 +355,11 @@ impl Monitor {
             motion_ok: sys::windows_animations_enabled(),
             demo: std::env::var_os("SPEEDMETER_DEMO").is_some(),
             last: Reading::default(),
+            last_internet: None,
             bucket: new_bucket(now),
             tracker: apps::Tracker::new(),
             app_bucket: std::collections::HashMap::new(),
+            app_totals: crate::appnet::Bytes::default(),
             apps_counted: false,
             totals: Totals {
                 day: String::new(),
@@ -375,21 +431,29 @@ impl Monitor {
         }
     }
 
-    /// Per-app bytes for this second, from the counting service. Returns the
-    /// busiest apps for the window's live list.
-    fn account_apps(&mut self) -> Vec<AppSpeed> {
-        let luids = self.sampler.active_luids().to_vec();
-        let Some(deltas) = self.tracker.tick(&luids) else { return Vec::new() };
-        self.apps_counted = true;
-        let mut speeds: Vec<AppSpeed> = deltas.iter().map(|d| AppSpeed { key: d.key.clone(), down: d.rx as f32, up: d.tx as f32 }).collect();
-        speeds.sort_by(|a, b| (b.down + b.up).total_cmp(&(a.down + a.up)));
-        speeds.truncate(shared::LIVE_APPS);
-        for d in deltas {
-            let e = self.app_bucket.entry(d.key.clone()).or_insert_with(|| apps::AppDelta { key: d.key, hint: d.hint, rx: 0, tx: 0 });
-            e.rx += d.rx;
-            e.tx += d.tx;
+    /// Records per-app bytes for this second independently of the live display.
+    fn account_apps(&mut self, traffic: Option<apps::Traffic>, all: Reading) {
+        let filter_requested = self.cfg.exclude_lan_from_app_history;
+        let internet = traffic.as_ref().and_then(|t| t.internet);
+        let exclude_lan = filter_requested && internet.is_some();
+        if !filter_requested || traffic.is_some() {
+            let totals = if exclude_lan { internet.unwrap_or(all) } else { all };
+            self.app_totals.rx += totals.rx;
+            self.app_totals.tx += totals.tx;
         }
-        speeds
+        let Some(traffic) = traffic else { return };
+        self.apps_counted = true;
+        for app in traffic.apps {
+            let crate::appnet::Bytes { rx, tx } = app.bytes(exclude_lan);
+            if rx == 0 && tx == 0 {
+                continue;
+            }
+            let total = app.total;
+            let e = self.app_bucket.entry(total.key.clone())
+                .or_insert_with(|| apps::AppDelta { key: total.key, hint: total.hint, rx: 0, tx: 0 });
+            e.rx += rx;
+            e.tx += tx;
+        }
     }
 
     fn flush_bucket(&mut self) {
@@ -401,7 +465,7 @@ impl Monitor {
             // What the meter measured beyond what apps account for (headers, other
             // users, timing), so the minute's apps add up to its total.
             let (arx, atx) = rows.iter().fold((0, 0), |(r, t), d| (r + d.rx, t + d.tx));
-            let other = apps::AppDelta { key: apps::OTHER.into(), hint: None, rx: self.bucket.rx.saturating_sub(arx), tx: self.bucket.tx.saturating_sub(atx) };
+            let other = apps::AppDelta { key: apps::OTHER.into(), hint: None, rx: self.app_totals.rx.saturating_sub(arx), tx: self.app_totals.tx.saturating_sub(atx) };
             if other.rx + other.tx > 0 {
                 rows.push(other);
             }
@@ -416,6 +480,7 @@ impl Monitor {
             }
         }
         self.app_bucket.clear();
+        self.app_totals = crate::appnet::Bytes::default();
         self.bucket.rx = 0;
         self.bucket.tx = 0;
         self.bucket.peak_rx = 0.0;
@@ -465,15 +530,46 @@ impl Monitor {
         self.totals.this_month.1 += r.tx;
     }
 
+    fn live_reading(&self) -> Reading {
+        if self.cfg.exclude_lan_from_live_speeds {
+            self.last_internet.unwrap_or(self.last)
+        } else {
+            self.last
+        }
+    }
+
     fn tick(&mut self) {
         self.ticks += 1;
         let real = self.sampler.sample(&self.cfg.connection);
         let r = if self.demo { demo_reading(self.ticks) } else { real };
-        self.last = r;
-        if !self.demo {
+        let traffic = if self.demo {
+            None
+        } else {
             self.account(&r);
-        }
-        let live_apps = if self.demo { demo_apps(&r, self.ticks) } else { self.account_apps() };
+            self.tracker.tick(&self.cfg.connection, self.sampler.active_luids())
+        };
+        let internet = traffic.as_ref().and_then(|t| t.internet);
+        let exclude_lan = self.cfg.exclude_lan_from_live_speeds;
+        let apps_exclude_lan = exclude_lan && internet.is_some();
+        let source_changed = exclude_lan && self.last_internet.is_some() != internet.is_some();
+        self.last = r;
+        self.last_internet = internet;
+        let Reading { down, up, .. } = self.live_reading();
+        let sample = Sample {
+            t: chrono::Utc::now().timestamp_millis(),
+            down: r.down as f32,
+            up: r.up as f32,
+            internet: internet.map(|r| [r.down as f32, r.up as f32]),
+        };
+        let live_apps = if self.demo {
+            demo_apps(&r, self.ticks)
+        } else {
+            let speeds = traffic.as_ref().map_or_else(Vec::new, |traffic| {
+                live_app_speeds(&traffic.apps, apps_exclude_lan, traffic.elapsed)
+            });
+            self.account_apps(traffic, r);
+            speeds
+        };
         let active = self.sampler.active();
         self.label = net::selection_label(&self.cfg.connection, &active);
 
@@ -486,11 +582,11 @@ impl Monitor {
                 apps::Status::Counting => AppsState::Counting,
             };
             live.publish(
-                Sample { t: chrono::Utc::now().timestamp_millis(), down: r.down as f32, up: r.up as f32 },
+                sample,
                 [t.today.0, t.today.1, t.this_month.0, t.this_month.1],
-                &self.label.0,
-                &self.label.1,
+                (&self.label.0, &self.label.1),
                 apps_state,
+                apps_exclude_lan,
                 &live_apps,
             );
         }
@@ -505,19 +601,19 @@ impl Monitor {
         let usage = self.limit_usage();
         self.limit_bar = limits::for_bar(&self.cfg.limits, &usage).map(|u| u.fraction() as f32);
         self.check_limits(&usage);
-        if self.animating() {
-            self.down.target = r.down;
-            self.up.target = r.up;
+        if self.animating() && !source_changed {
+            self.down.target = down;
+            self.up.target = up;
             self.layout_widget();
             self.start_animation();
         } else {
-            self.down.snap(r.down, &self.cfg.heat, self.dark, ink(self.dark));
-            self.up.snap(r.up, &self.cfg.heat, self.dark, ink(self.dark));
+            self.down.snap(down, &self.cfg.heat, self.dark, ink(self.dark));
+            self.up.snap(up, &self.cfg.heat, self.dark, ink(self.dark));
             self.render();
         }
 
-        let down = format::speed(r.down, self.cfg.unit, self.cfg.decimals);
-        let up = format::speed(r.up, self.cfg.unit, self.cfg.decimals);
+        let down = format::speed(down, self.cfg.unit, self.cfg.decimals);
+        let up = format::speed(up, self.cfg.unit, self.cfg.decimals);
         self.tray.set_tip(&format!("SpeedMeter: {}\nDownload {down}\nUpload {up}", self.label.0));
     }
 
@@ -717,6 +813,11 @@ impl Monitor {
     }
 
     fn apply(&mut self, old: &Config) {
+        if old.exclude_lan_from_live_speeds != self.cfg.exclude_lan_from_live_speeds {
+            let Reading { down, up, .. } = self.live_reading();
+            self.down.snap(down, &self.cfg.heat, self.dark, ink(self.dark));
+            self.up.snap(up, &self.cfg.heat, self.dark, ink(self.dark));
+        }
         if old.placement != self.cfg.placement {
             self.widget = None;
         }

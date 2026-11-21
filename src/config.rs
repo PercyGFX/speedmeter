@@ -132,6 +132,8 @@ impl Limits {
 #[serde(default)]
 pub struct Config {
     pub connection: Connection,
+    pub exclude_lan_from_live_speeds: bool,
+    pub exclude_lan_from_app_history: bool,
     pub placement: Placement,
     /// Extra distance (in DIPs) between the widget and its anchor point.
     pub offset: i32,
@@ -161,6 +163,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             connection: Connection::Auto,
+            exclude_lan_from_live_speeds: false,
+            exclude_lan_from_app_history: false,
             placement: Placement::TaskbarRight,
             offset: 0,
             floating_pos: None,
@@ -269,4 +273,17 @@ pub fn save(c: &Config) -> std::io::Result<()> {
 
 pub fn modified() -> Option<SystemTime> {
     std::fs::metadata(config_path()).and_then(|m| m.modified()).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn both_lan_filters_are_off_for_existing_settings() {
+        let config: Config = serde_json::from_str(r#"{"show_tray_icon":false}"#).unwrap();
+        assert!(!config.exclude_lan_from_live_speeds);
+        assert!(!config.exclude_lan_from_app_history);
+        assert!(!config.show_tray_icon);
+    }
 }
