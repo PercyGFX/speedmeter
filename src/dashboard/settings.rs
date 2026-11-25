@@ -60,6 +60,7 @@ fn connection_list(app: &mut App, ui: &mut Ui) {
         options.push((conn, a.name.clone(), adapter_desc(a)));
     }
     for (i, (conn, title, desc)) in options.into_iter().enumerate() {
+        theme::ensure_cjk(ui.ctx(), &[&title, &desc]);
         let selected = same_choice(&app.cfg.connection, &conn);
         let frame = egui::Frame::NONE
             .fill(p.layer)
