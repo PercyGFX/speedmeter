@@ -32,9 +32,9 @@ pub fn page_from_name(name: &str) -> u32 {
         _ => PAGE_LIVE,
     }
 }
-const MAGIC: u32 = 0x5350_4D32; // "SPM2"
+const MAGIC: u32 = 0x5350_4D33; // "SPM3"
 fn name() -> windows::core::HSTRING {
-    windows::core::HSTRING::from(format!("Local\\SpeedMeter.Live.v2{}", crate::config::instance_suffix()))
+    windows::core::HSTRING::from(format!("Local\\SpeedMeter.Live.v3{}", crate::config::instance_suffix()))
 }
 /// How many apps the live list carries.
 pub const LIVE_APPS: usize = 32;
@@ -75,6 +75,20 @@ pub struct Sample {
     pub down: f32,
     /// Upload, bytes per second.
     pub up: f32,
+    /// Internet-only download and upload. None when the counter is unavailable.
+    pub internet: Option<[f32; 2]>,
+}
+
+impl Sample {
+    /// The chart omits gaps in the internet series when displaying that series.
+    pub fn speeds(&self, exclude_lan: bool) -> Option<[f32; 2]> {
+        if exclude_lan { self.internet } else { Some([self.down, self.up]) }
+    }
+
+    /// Current readouts fall back to the adapter when the service is unavailable.
+    pub fn display_speeds(&self, exclude_lan: bool) -> [f32; 2] {
+        self.speeds(exclude_lan).unwrap_or([self.down, self.up])
+    }
 }
 
 #[repr(C)]
@@ -83,7 +97,8 @@ struct Live {
     seq: AtomicU32,
     /// Page the dashboard should switch to (set by the monitor's menu), 0 = none.
     page_request: AtomicU32,
-    _pad: u32,
+    /// Whether the live app rates were sampled in internet-only mode.
+    apps_exclude_lan: u32,
     head: u64,
     today_rx: u64,
     today_tx: u64,
@@ -110,6 +125,7 @@ pub struct Snapshot {
     /// Oldest first.
     pub samples: Vec<Sample>,
     pub apps_state: AppsState,
+    pub apps_exclude_lan: bool,
     pub apps: Vec<AppSpeed>,
 }
 
@@ -172,7 +188,15 @@ impl Writer {
         unsafe { &mut *self.map.ptr() }
     }
 
-    pub fn publish(&mut self, sample: Sample, totals: [u64; 4], name: &str, desc: &str, apps_state: AppsState, apps: &[AppSpeed]) {
+    pub fn publish(
+        &mut self,
+        sample: Sample,
+        totals: [u64; 4],
+        (name, desc): (&str, &str),
+        apps_state: AppsState,
+        apps_exclude_lan: bool,
+        apps: &[AppSpeed],
+    ) {
         let live = self.live();
         live.seq.fetch_add(1, Ordering::AcqRel);
         fence(Ordering::Release);
@@ -190,6 +214,7 @@ impl Writer {
             AppsState::Counting => 1,
             AppsState::Error => 2,
         };
+        live.apps_exclude_lan = u32::from(apps_exclude_lan);
         let n = apps.len().min(LIVE_APPS);
         for (slot, a) in live.apps.iter_mut().zip(&apps[..n]) {
             copy_wide(&mut slot.key, &a.key);
@@ -258,6 +283,7 @@ impl Reader {
                         2 => AppsState::Error,
                         _ => AppsState::Off,
                     },
+                    apps_exclude_lan: std::ptr::read_volatile(&(*live).apps_exclude_lan) != 0,
                     apps: {
                         let n = (std::ptr::read_volatile(&(*live).apps_count) as usize).min(LIVE_APPS);
                         (0..n)
@@ -283,5 +309,20 @@ impl Reader {
 
     pub fn request_page(&self, page: u32) {
         unsafe { (*self.map.ptr()).page_request.store(page, Ordering::Release) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Sample;
+
+    #[test]
+    fn live_speed_uses_one_series_and_falls_back_when_counter_is_unavailable() {
+        let measured = Sample { down: 300_000_000.0, up: 3000.0, internet: Some([500.0, 120.0]), ..Sample::default() };
+        assert_eq!(measured.display_speeds(false), [300_000_000.0, 3000.0]);
+        assert_eq!(measured.display_speeds(true), [500.0, 120.0]);
+        let unavailable = Sample { internet: None, ..measured };
+        assert_eq!(unavailable.display_speeds(true), [300_000_000.0, 3000.0]);
+        assert_eq!(unavailable.speeds(true), None);
     }
 }

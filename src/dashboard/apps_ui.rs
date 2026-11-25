@@ -51,6 +51,7 @@ pub fn rows(app: &mut App, ui: &Ui, list: &[AppRow]) -> Vec<TableRow> {
 #[derive(Default)]
 pub struct AppRates {
     last_t: i64,
+    exclude_lan: bool,
     apps: HashMap<String, Track>,
 }
 
@@ -106,6 +107,11 @@ impl AppRates {
             return;
         }
         self.last_t = t;
+        if self.exclude_lan != snap.apps_exclude_lan {
+            // The existing averages and seen times describe a different traffic scope.
+            self.apps.clear();
+            self.exclude_lan = snap.apps_exclude_lan;
+        }
         for a in &snap.apps {
             self.apps.entry(a.key.clone()).or_default();
         }
@@ -165,6 +171,34 @@ mod tests {
     fn leaves_after_four_quiet_seconds() {
         let shown = run(&[5.0, 5.0, 5.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
         assert_eq!(&shown[3..], [true, true, true, true, true, false]);
+    }
+
+    #[test]
+    fn changing_live_filter_clears_rates_from_the_previous_mode() {
+        use crate::shared::{AppSpeed, Sample};
+
+        let mut rates = AppRates::default();
+        let mut snap = Snapshot {
+            apps: vec![AppSpeed { key: "copy".into(), down: 1000.0, up: 0.0 }],
+            samples: vec![Sample::default()],
+            ..Snapshot::default()
+        };
+        for t in 1..=4 {
+            snap.samples[0].t = t * 1000;
+            rates.update(&snap);
+        }
+        assert_eq!(rates.current(), vec![(String::from("copy"), 1000.0, 0.0)]);
+
+        snap.apps_exclude_lan = true;
+        snap.apps[0].down = 50.0;
+        snap.samples[0].t = 5000;
+        rates.update(&snap);
+        assert!(rates.current().is_empty());
+        for t in 6..=8 {
+            snap.samples[0].t = t * 1000;
+            rates.update(&snap);
+        }
+        assert_eq!(rates.current(), vec![(String::from("copy"), 50.0, 0.0)]);
     }
 }
 

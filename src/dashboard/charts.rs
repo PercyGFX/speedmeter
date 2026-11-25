@@ -55,6 +55,7 @@ pub struct Wave<'a> {
     pub heat: &'a Heat,
     pub unit: UnitMode,
     pub animate: bool,
+    pub exclude_lan: bool,
 }
 
 fn ago_label(window_s: f64) -> &'static str {
@@ -83,18 +84,19 @@ pub fn waveform(ui: &mut Ui, p: &Palette, w: &Wave, height: f32) {
     // (start ms, end ms, peak down, peak up)
     let mut cols: Vec<(f64, f64, f32, f32)> = Vec::new();
     for s in w.samples.iter().filter(|s| s.t as f64 > start) {
+        let Some([down, up]) = s.speeds(w.exclude_lan) else { continue };
         let t = s.t as f64;
         if bucket_ms <= 1000.0 {
-            cols.push((t - 1000.0, t, s.down, s.up));
+            cols.push((t - 1000.0, t, down, up));
             continue;
         }
         let k = ((t - 1.0) / bucket_ms).floor() * bucket_ms;
         match cols.last_mut() {
             Some(c) if c.0 == k => {
-                c.2 = c.2.max(s.down);
-                c.3 = c.3.max(s.up);
+                c.2 = c.2.max(down);
+                c.3 = c.3.max(up);
             }
-            _ => cols.push((k, k + bucket_ms, s.down, s.up)),
+            _ => cols.push((k, k + bucket_ms, down, up)),
         }
     }
 

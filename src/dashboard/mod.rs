@@ -56,6 +56,7 @@ pub struct Service {
     pub version: Option<u32>,
     /// Why it isn't counting, if it says so.
     pub error: Option<String>,
+    internet_counters: bool,
     checked: Option<Instant>,
     /// Waiting for the administrator prompt or the setup to finish.
     pub busy: Arc<AtomicBool>,
@@ -64,6 +65,14 @@ pub struct Service {
 }
 
 impl Service {
+    pub fn supports_lan_filtering(&self) -> bool {
+        self.state == ServiceState::Running
+            && self.internet_counters
+            && !self.needs_update()
+            && self.error.is_none()
+            && !self.busy.load(Ordering::Acquire)
+    }
+
     pub fn needs_update(&self) -> bool {
         self.state == ServiceState::Running && self.version.is_some_and(|v| v < crate::appnet::SERVICE_VERSION)
     }
@@ -201,6 +210,7 @@ impl App {
                 state: ServiceState::NotInstalled,
                 version: None,
                 error: None,
+                internet_counters: false,
                 checked: None,
                 busy: Arc::new(AtomicBool::new(false)),
                 failed: Arc::new(Mutex::new(None)),
@@ -226,12 +236,13 @@ impl App {
         }
         self.service.checked = Some(Instant::now());
         self.service.state = apps::service_state();
-        let (version, error) = match apps::service_report() {
-            Some((v, e)) => (Some(v), e),
-            None => (None, None),
+        let (version, error, internet_counters) = match apps::service_report() {
+            Some((v, e, counters)) => (Some(v), e, counters),
+            None => (None, None, false),
         };
         self.service.version = version;
         self.service.error = error;
+        self.service.internet_counters = internet_counters;
     }
 
     /// Installs, updates or removes the per-app counting service. Windows asks for
@@ -586,7 +597,8 @@ impl eframe::App for App {
         self.last_frame = now;
 
         let latest = self.snap.as_ref().filter(|s| s.is_fresh()).and_then(|s| s.latest());
-        let (down, up) = latest.map(|s| (s.down as f64, s.up as f64)).unwrap_or((0.0, 0.0));
+        let [down, up] = latest.map_or([0.0; 2], |s| s.display_speeds(self.cfg.exclude_lan_from_live_speeds));
+        let (down, up) = (down as f64, up as f64);
         let ink = theme::to_rgb(self.pal.text);
         let mut moving = false;
         if self.animating() {
@@ -671,5 +683,33 @@ pub fn run(page: u32) {
     };
     if let Err(e) = eframe::run_native(TITLE, options, Box::new(move |cc| Ok(Box::new(App::new(cc, page))))) {
         sys::log(&format!("dashboard failed to start: {e}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lan_filters_wait_for_a_current_counter() {
+        let mut service = Service {
+            state: ServiceState::Running,
+            version: Some(crate::appnet::SERVICE_VERSION - 1),
+            error: None,
+            internet_counters: false,
+            checked: None,
+            busy: Arc::new(AtomicBool::new(false)),
+            failed: Arc::new(Mutex::new(None)),
+        };
+        assert!(service.needs_update());
+        assert!(!service.supports_lan_filtering());
+
+        service.version = Some(crate::appnet::SERVICE_VERSION);
+        assert!(!service.needs_update());
+        assert!(!service.supports_lan_filtering());
+
+        service.internet_counters = true;
+        assert!(!service.needs_update());
+        assert!(service.supports_lan_filtering());
     }
 }
