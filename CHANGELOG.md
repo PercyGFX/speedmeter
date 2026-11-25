@@ -2,6 +2,17 @@
 
 What's new in each version of SpeedMeter. The newest version is at the top.
 
+## [0.4.0] - 2026-11-26
+
+### New
+
+- **Exclude LAN traffic.** Two opt-in switches under **Settings > LAN traffic** let you exclude local-network transfers from live speeds (taskbar meter, tray tooltip, Live graph, peaks and live app list) and/or from per-app History. Both are off by default; overall History totals and data limits still use adapter counters. If you use per-app counting, SpeedMeter offers to update the counter once (one administrator approval). Thanks to @defragekb (#5).
+- **Languages.** Built-in Simplified Chinese alongside English, switchable in **Settings > General > Language**. Fresh installs follow the Windows UI language when a matching pack is available. You can also add or override languages with UTF-8 JSON packs in `%LOCALAPPDATA%\SpeedMeter\locales` without rebuilding—see [localization](docs/localization.md). Thanks to @lxl8800 (#3).
+
+### Fixed
+
+- **Chinese, Japanese and Korean names.** Network adapter and application names with CJK characters now load Windows fallback fonts on demand instead of appearing as square boxes, with no extra startup or memory cost for English-only setups. Thanks to @lxl8800 (#2).
+
 ## [0.3.0] - 2026-11-11
 
 ### New look
@@ -75,6 +86,7 @@ First release.
 - Automatic network choice that follows Ethernet, Wi-Fi and VPNs.
 - Installer without administrator rights, start with Windows, and automatic updates from GitHub Releases.
 
+[0.4.0]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.4.0
 [0.3.0]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.3.0
 [0.2.2]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.2.2
 [0.2.1]: https://github.com/PercyGFX/speedmeter/releases/tag/v0.2.1

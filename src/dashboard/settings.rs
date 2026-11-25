@@ -62,10 +62,10 @@ fn connection_list(app: &mut App, ui: &mut Ui) {
         options.push((conn, a.name.clone(), adapter_desc(a)));
     }
     for (i, (conn, title, desc)) in options.into_iter().enumerate() {
-        theme::ensure_cjk(ui.ctx(), &[&title, &desc]);
         let selected = same_choice(&app.cfg.connection, &conn);
         let shown_title = i18n::tr(&title);
         let shown_desc = i18n::tr(&desc);
+        theme::ensure_cjk(ui.ctx(), &[shown_title, shown_desc]);
         let frame = egui::Frame::NONE
             .fill(p.layer)
             .stroke(egui::Stroke::new(1.0_f32, if selected { theme::blend(p.line, p.fill(), 0.85) } else { p.line }))
@@ -288,7 +288,7 @@ fn lan_traffic(app: &mut App, ui: &mut Ui) {
     } else {
         "Requires a working per-app counter with LAN support."
     };
-    ui.label(RichText::new(requirement).font(theme::body(13.0)).color(p.dim));
+    ui.label(RichText::new(i18n::tr(requirement)).font(theme::body(13.0)).color(p.dim));
     let options = [
         (
             "Exclude LAN from live speeds",
@@ -316,41 +316,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     app.refresh_adapters();
 
     ui.label(RichText::new(i18n::tr("Network")).font(theme::strong(15.0)).color(p.text));
-    ui.add_space(4.0);
-    let languages = i18n::choices();
-    let selected = languages.iter()
-        .find(|(code, _)| code == &app.cfg.language)
-        .map_or("English", |(_, name)| name.as_str());
-    // Keep the selector visible even when a scroll area reports a wide content
-    // region: unlike other settings rows, this is a fixed-width dropdown.
-    let row_width = ui.available_width()
-        .min((ui.ctx().screen_rect().right() - ui.cursor().left() - 36.0).max(320.0));
-    egui::Frame::NONE
-        .fill(p.layer)
-        .stroke(egui::Stroke::new(1.0_f32, p.line))
-        .corner_radius(egui::CornerRadius::same(8))
-        .inner_margin(egui::Margin::symmetric(18, 12))
-        .show(ui, |ui| {
-            ui.set_width(row_width - 36.0);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(i18n::tr("Language")).font(theme::body(14.0)).color(p.text));
-                // A fixed gap avoids pushing the selector outside a narrow viewport.
-                ui.add_space(24.0);
-                egui::ComboBox::from_id_salt("display-language")
-                    .width(140.0)
-                    .selected_text(selected)
-                    .show_ui(ui, |ui| {
-                        let previous = app.cfg.language.clone();
-                        for (code, name) in &languages {
-                            ui.selectable_value(&mut app.cfg.language, code.clone(), name);
-                        }
-                        if app.cfg.language != previous {
-                            i18n::set(&app.cfg.language);
-                            ui.ctx().request_repaint();
-                        }
-                    });
-            });
-        });
     ui.add_space(4.0);
     connection_list(app, ui);
 
@@ -458,6 +423,28 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         });
         ui::setting_row(ui, &p, "Window theme", Some("Colors for this window. The taskbar meter follows the taskbar."), |ui| {
             ui::segmented(ui, &p, "theme", &mut cfg.theme, &[(ThemePref::System, "System"), (ThemePref::Dark, "Dark"), (ThemePref::Light, "Light")]);
+        });
+        let languages = i18n::choices();
+        let selected = languages
+            .iter()
+            .find(|(code, _)| code == &cfg.language)
+            .map_or("English", |(_, name)| name.as_str());
+        theme::ensure_cjk(ui.ctx(), &[selected]);
+        ui::setting_row(ui, &p, "Language", None, |ui| {
+            egui::ComboBox::from_id_salt("display-language")
+                .width(160.0)
+                .selected_text(selected)
+                .show_ui(ui, |ui| {
+                    let previous = cfg.language.clone();
+                    for (code, name) in &languages {
+                        theme::ensure_cjk(ui.ctx(), &[name]);
+                        ui.selectable_value(&mut cfg.language, code.clone(), name);
+                    }
+                    if cfg.language != previous {
+                        i18n::set(&cfg.language);
+                        ui.ctx().request_repaint();
+                    }
+                });
         });
     }
 

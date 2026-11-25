@@ -24,6 +24,7 @@ Settings live in `%LOCALAPPDATA%\SpeedMeter\config.json`. The window and the rig
 | `start_with_windows` | `true` | Adds or removes the sign-in entry |
 | `show_tray_icon` | `true` | Notification-area icon |
 | `theme` | `system` | Window colors: `system`, `dark` or `light` |
+| `language` | `""` (Windows UI language) | Display language code (e.g. `en-US`, `zh-CN`). Empty follows Windows when a matching pack is available, otherwise English. See [localization](localization.md). |
 | `keep_minutes_days` | `30` | Days of minute-by-minute detail to keep |
 | `auto_update` | `true` | Install new versions in the background |
 | `limits` | all off | Data limits, see below |
