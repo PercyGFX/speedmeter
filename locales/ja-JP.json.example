@@ -1,0 +1,12 @@
+{
+  "code": "ja-JP",
+  "name": "日本語",
+  "translations": {
+    "Live": "リアルタイム",
+    "History": "通信履歴",
+    "Settings": "設定",
+    "Language": "表示言語",
+    "Network": "ネットワーク",
+    "Start SpeedMeter": "SpeedMeter を起動"
+  }
+}
